@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Edit, Trash2, Play, Pause, Share2, Copy } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Collection {
@@ -44,8 +44,6 @@ export function ManageAuction() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showCollectionForm, setShowCollectionForm] = useState(false);
-  const [showItemForm, setShowItemForm] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
 
   // Fetch auction details
   const { data: auction, isLoading: auctionLoading } = useQuery({
@@ -79,7 +77,7 @@ export function ManageAuction() {
     enabled: !!auction?.id,
   });
 
-  // Fetch items
+  // Fetch items for counting
   const { data: items } = useQuery({
     queryKey: ['items', auction?.id],
     queryFn: async () => {
@@ -141,40 +139,6 @@ export function ManageAuction() {
       toast({
         title: 'Collection Added',
         description: 'New collection has been created successfully.',
-      });
-    },
-  });
-
-  // Add item
-  const addItemMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      const name = formData.get('name') as string;
-      const description = formData.get('description') as string;
-      const startingBid = parseFloat(formData.get('startingBid') as string);
-      const inventory = parseInt(formData.get('inventory') as string);
-
-      const collectionItems = items?.filter(i => i.collection_id === selectedCollection) || [];
-
-      const { error } = await supabase
-        .from('items')
-        .insert({
-          collection_id: selectedCollection!,
-          name,
-          description: description || null,
-          starting_bid: startingBid,
-          inventory,
-          sort_order: collectionItems.length + 1,
-        });
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['items', auction?.id] });
-      setShowItemForm(false);
-      setSelectedCollection(null);
-      toast({
-        title: 'Item Added',
-        description: 'New item has been created successfully.',
       });
     },
   });
@@ -279,201 +243,88 @@ export function ManageAuction() {
           </CardContent>
         </Card>
 
-        {/* Collections and Items */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Collections */}
-          <Card>
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <CardTitle>Collections</CardTitle>
-                <Button
-                  size="sm"
-                  onClick={() => setShowCollectionForm(true)}
-                  disabled={auction.status === 'closed'}
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Collection
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {showCollectionForm && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    addCollectionMutation.mutate(new FormData(e.currentTarget));
-                  }}
-                  className="space-y-4 mb-4 p-4 border rounded-lg bg-gray-50"
-                >
-                  <div>
-                    <Label htmlFor="name">Collection Name</Label>
-                    <Input id="name" name="name" required />
-                  </div>
-                  <div>
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea id="description" name="description" rows={2} />
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button type="submit" size="sm">Add</Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowCollectionForm(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2">
-                {collections?.map((collection) => (
-                  <div
-                    key={collection.id}
-                    className="p-3 border rounded-lg hover:bg-gray-50"
+        {/* Collections Management */}
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <CardTitle>Collections</CardTitle>
+              <Button
+                size="sm"
+                onClick={() => setShowCollectionForm(true)}
+                disabled={auction.status === 'closed'}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add Collection
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {showCollectionForm && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addCollectionMutation.mutate(new FormData(e.currentTarget));
+                }}
+                className="space-y-4 mb-4 p-4 border rounded-lg bg-gray-50"
+              >
+                <div>
+                  <Label htmlFor="name">Collection Name</Label>
+                  <Input id="name" name="name" required />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea id="description" name="description" rows={2} />
+                </div>
+                <div className="flex space-x-2">
+                  <Button type="submit" size="sm">Add</Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowCollectionForm(false)}
                   >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-medium">{collection.name}</h4>
-                        {collection.description && (
-                          <p className="text-sm text-gray-600">{collection.description}</p>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">
-                          {items?.filter(i => i.collection_id === collection.id).length || 0} items
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedCollection(collection.id);
-                          setShowItemForm(true);
-                        }}
-                        disabled={auction.status === 'closed'}
-                      >
-                        <Plus className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {collections?.map((collection) => {
+                const collectionItemCount = items?.filter(i => i.collection_id === collection.id).length || 0;
                 
-                {!collections?.length && (
-                  <p className="text-gray-500 text-center py-4">
-                    No collections yet. Add one to get started.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Items */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Items</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {showItemForm && selectedCollection && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    addItemMutation.mutate(new FormData(e.currentTarget));
-                  }}
-                  className="space-y-4 mb-4 p-4 border rounded-lg bg-gray-50"
-                >
-                  <div>
-                    <Label>Collection: {collections?.find(c => c.id === selectedCollection)?.name}</Label>
-                  </div>
-                  <div>
-                    <Label htmlFor="name">Item Name</Label>
-                    <Input id="name" name="name" required />
-                  </div>
-                  <div>
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea id="description" name="description" rows={2} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="startingBid">Starting Bid (₹)</Label>
-                      <Input
-                        id="startingBid"
-                        name="startingBid"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="inventory">Quantity</Label>
-                      <Input
-                        id="inventory"
-                        name="inventory"
-                        type="number"
-                        min="1"
-                        defaultValue="1"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button type="submit" size="sm">Add Item</Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setShowItemForm(false);
-                        setSelectedCollection(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2">
-                {collections?.map((collection) => {
-                  const collectionItems = items?.filter(i => i.collection_id === collection.id) || [];
-                  
-                  if (collectionItems.length === 0) return null;
-                  
-                  return (
-                    <div key={collection.id}>
-                      <h4 className="font-medium text-sm text-gray-700 mb-2">{collection.name}</h4>
-                      {collectionItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className="p-3 border rounded-lg ml-4 mb-2"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h5 className="font-medium">{item.name}</h5>
-                              {item.description && (
-                                <p className="text-sm text-gray-600">{item.description}</p>
-                              )}
-                              <div className="flex space-x-4 text-xs text-gray-500 mt-1">
-                                <span>Starting: ₹{item.starting_bid}</span>
-                                <span>Qty: {item.inventory}</span>
-                              </div>
-                            </div>
-                          </div>
+                return (
+                  <Card
+                    key={collection.id}
+                    className="hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => navigate(`/auction/${slug}/collection/${collection.id}`)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{collection.name}</h4>
+                          {collection.description && (
+                            <p className="text-sm text-gray-600 mt-1">{collection.description}</p>
+                          )}
+                          <p className="text-xs text-gray-500 mt-2">
+                            {collectionItemCount} items
+                          </p>
                         </div>
-                      ))}
-                    </div>
-                  );
-                })}
-                
-                {!items?.length && (
-                  <p className="text-gray-500 text-center py-4">
-                    No items yet. Add collections first, then add items.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                        <ArrowRight className="w-4 h-4 text-gray-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+            
+            {!collections?.length && (
+              <p className="text-gray-500 text-center py-8">
+                No collections yet. Add one to get started with your auction items.
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );
