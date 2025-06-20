@@ -31,20 +31,38 @@ export function QuantityBidForm({
   onSubmitBid, 
   disabled = false 
 }: QuantityBidFormProps) {
-  const [quantity, setQuantity] = useState(1);
-  const [pricePerUnit, setPricePerUnit] = useState(item.starting_bid);
+  const [quantity, setQuantity] = useState<string>('1');
+  const [pricePerUnit, setPricePerUnit] = useState<string>(item.starting_bid.toString());
   
-  const totalBid = quantity * pricePerUnit;
+  const quantityNum = parseInt(quantity) || 0;
+  const pricePerUnitNum = parseFloat(pricePerUnit) || 0;
+  const totalBid = quantityNum * pricePerUnitNum;
   const remainingBudget = maxBudget - currentBudgetUsed;
   const canAfford = totalBid <= remainingBudget;
-  const validQuantity = quantity > 0 && quantity <= item.inventory;
-  const validPrice = pricePerUnit >= item.starting_bid;
+  const validQuantity = quantityNum > 0 && quantityNum <= item.inventory;
+  const validPrice = pricePerUnitNum >= item.starting_bid;
   const canSubmit = canAfford && validQuantity && validPrice && !disabled;
+
+  const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Allow empty string or valid numbers
+    if (value === '' || /^\d+$/.test(value)) {
+      setQuantity(value);
+    }
+  };
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Allow empty string or valid decimal numbers
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setPricePerUnit(value);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (canSubmit) {
-      onSubmitBid(item.id, quantity, pricePerUnit, totalBid);
+      onSubmitBid(item.id, quantityNum, pricePerUnitNum, totalBid);
     }
   };
 
@@ -74,12 +92,11 @@ export function QuantityBidForm({
               <Label htmlFor={`quantity-${item.id}`}>Quantity</Label>
               <Input
                 id={`quantity-${item.id}`}
-                type="number"
-                min="1"
-                max={item.inventory}
+                type="text"
                 value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                onChange={handleQuantityChange}
                 disabled={disabled}
+                placeholder="1"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Max: {item.inventory} units
@@ -89,12 +106,11 @@ export function QuantityBidForm({
               <Label htmlFor={`price-${item.id}`}>Price per Unit (₹)</Label>
               <Input
                 id={`price-${item.id}`}
-                type="number"
-                min={item.starting_bid}
-                step="0.01"
+                type="text"
                 value={pricePerUnit}
-                onChange={(e) => setPricePerUnit(parseFloat(e.target.value) || item.starting_bid)}
+                onChange={handlePriceChange}
                 disabled={disabled}
+                placeholder={item.starting_bid.toString()}
               />
               <p className="text-xs text-gray-500 mt-1">
                 Min: ₹{item.starting_bid}
@@ -111,15 +127,15 @@ export function QuantityBidForm({
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span>Quantity:</span>
-                <span>{quantity} units</span>
+                <span>{quantityNum || 0} units</span>
               </div>
               <div className="flex justify-between">
                 <span>Price per unit:</span>
-                <span>₹{pricePerUnit}</span>
+                <span>₹{pricePerUnitNum || 0}</span>
               </div>
               <div className="flex justify-between font-medium border-t pt-1">
                 <span>Total bid:</span>
-                <span>₹{totalBid}</span>
+                <span>₹{totalBid || 0}</span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Remaining budget:</span>
@@ -135,7 +151,7 @@ export function QuantityBidForm({
           </div>
 
           {/* Validation Messages */}
-          {!canAfford && (
+          {!canAfford && totalBid > 0 && (
             <Alert variant="destructive">
               <AlertDescription>
                 Bid amount (₹{totalBid}) exceeds remaining budget (₹{remainingBudget})
@@ -143,7 +159,7 @@ export function QuantityBidForm({
             </Alert>
           )}
           
-          {!validQuantity && (
+          {!validQuantity && quantityNum > 0 && (
             <Alert variant="destructive">
               <AlertDescription>
                 Quantity must be between 1 and {item.inventory} units
@@ -151,7 +167,7 @@ export function QuantityBidForm({
             </Alert>
           )}
           
-          {!validPrice && (
+          {!validPrice && pricePerUnitNum > 0 && (
             <Alert variant="destructive">
               <AlertDescription>
                 Price per unit must be at least ₹{item.starting_bid}
@@ -164,7 +180,7 @@ export function QuantityBidForm({
             className="w-full" 
             disabled={!canSubmit}
           >
-            {disabled ? 'Bidding Closed' : `Place Bid: ₹${totalBid}`}
+            {disabled ? 'Bidding Closed' : `Place Bid: ₹${totalBid || 0}`}
           </Button>
         </form>
       </CardContent>
