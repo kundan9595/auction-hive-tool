@@ -7,10 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Collection {
@@ -63,6 +65,8 @@ export function ManageAuction() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showCollectionForm, setShowCollectionForm] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [editingAuction, setEditingAuction] = useState(false);
 
   // Fetch auction details
   const { data: auction, isLoading: auctionLoading } = useQuery({
@@ -336,6 +340,109 @@ export function ManageAuction() {
     },
   });
 
+  // Edit auction mutation
+  const editAuctionMutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      const name = formData.get('name') as string;
+      const description = formData.get('description') as string;
+      const maxBudget = parseFloat(formData.get('maxBudget') as string);
+
+      const { error } = await supabase
+        .from('auctions')
+        .update({
+          name,
+          description: description || null,
+          max_budget_per_bidder: maxBudget,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', auction!.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auction', slug] });
+      setEditingAuction(false);
+      toast({
+        title: 'Auction Updated',
+        description: 'Auction details have been updated successfully.',
+      });
+    },
+  });
+
+  // Delete auction mutation
+  const deleteAuctionMutation = useMutation({
+    mutationFn: async () => {
+      // Delete in order: auction_results, bids, items, collections, auction
+      if (auction?.id) {
+        await supabase.from('auction_results').delete().eq('auction_id', auction.id);
+        await supabase.from('bids').delete().eq('auction_id', auction.id);
+        
+        if (collections?.length) {
+          const collectionIds = collections.map(c => c.id);
+          await supabase.from('items').delete().in('collection_id', collectionIds);
+        }
+        
+        await supabase.from('collections').delete().eq('auction_id', auction.id);
+        
+        const { error } = await supabase.from('auctions').delete().eq('id', auction.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Auction Deleted',
+        description: 'Auction and all related data have been deleted.',
+      });
+      navigate('/dashboard');
+    },
+  });
+
+  // Edit collection mutation
+  const editCollectionMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string; description: string }) => {
+      const { error } = await supabase
+        .from('collections')
+        .update({
+          name: data.name,
+          description: data.description || null,
+        })
+        .eq('id', data.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collections', auction?.id] });
+      setEditingCollection(null);
+      toast({
+        title: 'Collection Updated',
+        description: 'Collection has been updated successfully.',
+      });
+    },
+  });
+
+  // Delete collection mutation
+  const deleteCollectionMutation = useMutation({
+    mutationFn: async (collectionId: string) => {
+      // Delete items first, then collection
+      await supabase.from('items').delete().eq('collection_id', collectionId);
+      
+      const { error } = await supabase
+        .from('collections')
+        .delete()
+        .eq('id', collectionId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['collections', auction?.id] });
+      queryClient.invalidateQueries({ queryKey: ['items', auction?.id] });
+      toast({
+        title: 'Collection Deleted',
+        description: 'Collection and all its items have been deleted.',
+      });
+    },
+  });
+
   // Add collection
   const addCollectionMutation = useMutation({
     mutationFn: async (formData: FormData) => {
@@ -406,8 +513,103 @@ export function ManageAuction() {
         <Card>
           <CardHeader>
             <div className="flex justify-between items-start">
-              <div>
-                <CardTitle className="text-2xl">{auction.name}</CardTitle>
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <CardTitle className="text-2xl">{auction.name}</CardTitle>
+                  
+                  <Dialog open={editingAuction} onOpenChange={setEditingAuction}>
+                    <DialogTrigger asChild>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        disabled={auction.status === 'active'}
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Edit Auction</DialogTitle>
+                        <DialogDescription>
+                          Update auction details. Cannot edit while auction is active.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          editAuctionMutation.mutate(new FormData(e.currentTarget));
+                        }}
+                        className="space-y-4"
+                      >
+                        <div>
+                          <Label htmlFor="edit-name">Auction Name</Label>
+                          <Input 
+                            id="edit-name" 
+                            name="name" 
+                            defaultValue={auction.name}
+                            required 
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="edit-description">Description</Label>
+                          <Textarea 
+                            id="edit-description" 
+                            name="description" 
+                            defaultValue={auction.description || ''}
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="edit-maxBudget">Max Budget per Bidder (₹)</Label>
+                          <Input 
+                            id="edit-maxBudget" 
+                            name="maxBudget" 
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            defaultValue={auction.max_budget_per_bidder}
+                            required 
+                          />
+                        </div>
+                        <DialogFooter>
+                          <Button type="submit" disabled={editAuctionMutation.isPending}>
+                            {editAuctionMutation.isPending ? 'Updating...' : 'Update Auction'}
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button 
+                        size="sm" 
+                        variant="destructive"
+                        disabled={auction.status === 'active'}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Auction</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete the auction and ALL related data including collections, items, bids, and results. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => deleteAuctionMutation.mutate()}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          Delete Auction
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+
                 <CardDescription className="mt-2">
                   {auction.description || 'No description provided'}
                 </CardDescription>
