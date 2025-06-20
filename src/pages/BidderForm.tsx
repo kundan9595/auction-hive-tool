@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -149,6 +150,20 @@ export default function BidderForm() {
         throw new Error('No bids to submit');
       }
 
+      // First, delete any existing bids for this bidder in this auction
+      const { error: deleteError } = await supabase
+        .from('bids')
+        .delete()
+        .eq('auction_id', auction!.id)
+        .eq('bidder_name', bidderName)
+        .eq('bidder_email', bidderEmail);
+
+      if (deleteError) {
+        console.error('Error deleting existing bids:', deleteError);
+        // Continue anyway, the insert might still work
+      }
+
+      // Then insert the new bids
       const bidInserts = bidArray.map(bid => ({
         auction_id: auction!.id,
         item_id: bid.itemId,
