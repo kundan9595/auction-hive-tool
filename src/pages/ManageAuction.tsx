@@ -14,6 +14,7 @@ import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
 import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2, MoreHorizontal } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { BidderStatus } from '@/components/BidderStatus';
 
 interface Collection {
   id: string;
@@ -722,6 +723,11 @@ export function ManageAuction() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Bidder Status - Show only when auction is draft or active */}
+        {(auction.status === 'draft' || auction.status === 'active') && (
+          <BidderStatus auctionId={auction.id} auctionStatus={auction.status} />
+        )}
 
         {/* Collections Management */}
         <Card>
