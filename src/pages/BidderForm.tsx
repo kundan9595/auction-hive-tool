@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { User, Wallet } from 'lucide-react';
+import { User, Wallet, RotateCcw, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stepper } from '@/components/Stepper';
 import { CollectionStep } from '@/components/CollectionStep';
@@ -202,6 +202,43 @@ export default function BidderForm() {
       });
     },
   });
+
+  // Reset functions
+  const handleResetBids = () => {
+    if (Object.keys(bids).length === 0) {
+      toast({
+        title: 'No Bids to Reset',
+        description: 'You haven\'t placed any bids yet.',
+        variant: 'default',
+      });
+      return;
+    }
+
+    setBids({});
+    toast({
+      title: 'Bids Reset',
+      description: 'All your bids have been cleared. You can start placing new bids.',
+    });
+  };
+
+  const handleRestartSession = () => {
+    // Clear all data
+    setBidderName('');
+    setBidderEmail('');
+    setIsRegistered(false);
+    setBids({});
+    setCurrentStep(0);
+    
+    // Clear localStorage
+    if (slug) {
+      localStorage.removeItem(`auction-${slug}-bidder-data`);
+    }
+    
+    toast({
+      title: 'Session Restarted',
+      description: 'Your session has been completely reset. Please register again to start bidding.',
+    });
+  };
 
   // Calculate budget usage
   const currentBudgetUsed = Object.values(bids).reduce((sum, bid) => sum + bid.totalBid, 0);
@@ -401,13 +438,44 @@ export default function BidderForm() {
         {/* Auction Header */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-2xl">{auction.name}</CardTitle>
-            <CardDescription>
-              {auction.description || 'Welcome to this auction'}
-            </CardDescription>
-            <div className="flex gap-2">
-              <Badge className="bg-green-100 text-green-800">Active</Badge>
-              <Badge variant="outline">Max Budget: ₹{auction.max_budget_per_bidder}</Badge>
+            <div className="flex justify-between items-start">
+              <div className="flex-1">
+                <CardTitle className="text-2xl">{auction.name}</CardTitle>
+                <CardDescription>
+                  {auction.description || 'Welcome to this auction'}
+                </CardDescription>
+                <div className="flex gap-2 mt-2">
+                  <Badge className="bg-green-100 text-green-800">Active</Badge>
+                  <Badge variant="outline">Max Budget: ₹{auction.max_budget_per_bidder}</Badge>
+                </div>
+              </div>
+              
+              {/* Reset/Restart Actions */}
+              <div className="flex gap-2">
+                {isRegistered && Object.keys(bids).length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetBids}
+                    className="flex items-center gap-2"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Reset Bids
+                  </Button>
+                )}
+                
+                {isRegistered && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRestartSession}
+                    className="flex items-center gap-2 text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Restart Session
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
         </Card>
@@ -444,6 +512,16 @@ export default function BidderForm() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Info Alert for Reset Actions */}
+        {isRegistered && (
+          <Alert className="mb-6">
+            <AlertDescription>
+              <strong>Need to start over?</strong> Use "Reset Bids" to clear only your current bids, 
+              or "Restart Session" to completely reset and re-register.
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Stepper */}
