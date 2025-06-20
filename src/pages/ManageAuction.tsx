@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,9 +46,14 @@ interface BidderResult {
   items: Array<{
     item_name: string;
     starting_bid: number;
+    quantity_won: number;
+    original_bid_per_unit: number;
+    price_per_unit_paid: number;
     winning_amount: number;
+    refund_amount: number;
   }>;
   total_spent: number;
+  total_refund: number;
   budget_remaining: number;
 }
 
@@ -58,6 +62,7 @@ interface RemainingItem {
   name: string;
   starting_bid: number;
   inventory: number;
+  remaining_quantity: number;
   collection_name: string;
 }
 
@@ -159,7 +164,7 @@ export function ManageAuction() {
     enabled: !!auction?.id && auction?.status === 'closed',
   });
 
-  // Process results to get bidder-wise summary (including those who didn't win)
+  // Process results to get bidder-wise summary with quantity and refunds
   const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders ? 
     allBidders.map(bidderName => {
       const bidderWins = auctionResults.filter(result => result.winner_name === bidderName);
@@ -167,31 +172,47 @@ export function ManageAuction() {
       const items = bidderWins.map(result => ({
         item_name: result.items.name,
         starting_bid: result.items.starting_bid,
+        quantity_won: result.quantity_won || 1,
+        original_bid_per_unit: result.original_bid_per_unit || 0,
+        price_per_unit_paid: result.price_per_unit_paid || 0,
         winning_amount: result.winning_amount || 0,
+        refund_amount: result.refund_amount || 0,
       }));
       
       const totalSpent = bidderWins.reduce((sum, result) => sum + (result.winning_amount || 0), 0);
+      const totalRefund = bidderWins.reduce((sum, result) => sum + (result.refund_amount || 0), 0);
       
       return {
         bidder_name: bidderName,
         items,
         total_spent: totalSpent,
-        budget_remaining: auction!.max_budget_per_bidder - totalSpent,
+        total_refund: totalRefund,
+        budget_remaining: auction!.max_budget_per_bidder - totalSpent + totalRefund,
       };
     })
   : [];
 
-  // Get remaining items (items without winners)
+  // Get remaining items with remaining quantities
   const remainingItems: RemainingItem[] = auction?.status === 'closed' && items && auctionResults ? 
-    items
-      .filter(item => !auctionResults.some(result => result.item_id === item.id))
-      .map(item => ({
-        id: item.id,
-        name: item.name,
-        starting_bid: item.starting_bid,
-        inventory: item.inventory,
-        collection_name: collections?.find(c => c.id === item.collection_id)?.name || 'Unknown',
-      }))
+    items.map(item => {
+      const soldQuantity = auctionResults
+        .filter(result => result.item_id === item.id)
+        .reduce((sum, result) => sum + (result.quantity_sold || 0), 0);
+      
+      const remainingQuantity = item.inventory - soldQuantity;
+      
+      if (remainingQuantity > 0) {
+        return {
+          id: item.id,
+          name: item.name,
+          starting_bid: item.starting_bid,
+          inventory: item.inventory,
+          remaining_quantity: remainingQuantity,
+          collection_name: collections?.find(c => c.id === item.collection_id)?.name || 'Unknown',
+        };
+      }
+      return null;
+    }).filter(Boolean) as RemainingItem[]
   : [];
 
   // Toggle auction status
@@ -213,7 +234,7 @@ export function ManageAuction() {
 
       if (error) throw error;
 
-      // If closing auction, generate results
+      // If closing auction, generate results using the new function
       if (newStatus === 'closed') {
         await generateAuctionResults();
       }
@@ -227,57 +248,21 @@ export function ManageAuction() {
     },
   });
 
-  // Generate auction results when closing
+  // Generate auction results using the new average pricing function
   const generateAuctionResults = async () => {
     if (!auction?.id) return;
 
     try {
-      // Get all bids for this auction
-      const { data: bids, error: bidsError } = await supabase
-        .from('bids')
-        .select('*')
-        .eq('auction_id', auction.id);
-
-      if (bidsError) throw bidsError;
-
-      // Group bids by item and find highest bidder for each
-      const itemBids = bids?.reduce((acc, bid) => {
-        if (!acc[bid.item_id]) {
-          acc[bid.item_id] = [];
-        }
-        acc[bid.item_id].push(bid);
-        return acc;
-      }, {} as Record<string, any[]>);
-
-      // Generate results for each item
-      const results = Object.entries(itemBids || {}).map(([itemId, itemBidList]) => {
-        // Sort by bid amount (highest first)
-        const sortedBids = itemBidList.sort((a, b) => b.bid_amount - a.bid_amount);
-        const winningBid = sortedBids[0];
-
-        return {
-          auction_id: auction.id,
-          item_id: itemId,
-          winning_bid_id: winningBid.id,
-          winner_name: winningBid.bidder_name,
-          winning_amount: winningBid.bid_amount,
-          quantity_sold: 1, // For now, assuming quantity 1 per winner
-        };
+      // Call the new database function for average pricing calculation
+      const { error } = await supabase.rpc('calculate_average_auction_results', {
+        auction_id_param: auction.id
       });
 
-      if (results.length > 0) {
-        const { error: resultsError } = await supabase
-          .from('auction_results')
-          .upsert(results, {
-            onConflict: 'auction_id,item_id',
-          });
-
-        if (resultsError) throw resultsError;
-      }
+      if (error) throw error;
 
       toast({
         title: 'Auction Closed',
-        description: 'Results have been generated successfully.',
+        description: 'Results have been generated with average pricing.',
       });
     } catch (error) {
       console.error('Error generating auction results:', error);
@@ -866,15 +851,15 @@ export function ManageAuction() {
           </CardContent>
         </Card>
 
-        {/* Auction Results - Show only when auction is closed */}
+        {/* Auction Results - Show only when auction is closed with new quantity and refund display */}
         {auction.status === 'closed' && (
           <>
-            {/* All Bidders Results Card */}
+            {/* All Bidders Results Card - Updated for quantity-based results */}
             <Card>
               <CardHeader>
-                <CardTitle>Auction Results - All Bidders</CardTitle>
+                <CardTitle>Auction Results - Quantity-Based with Average Pricing</CardTitle>
                 <CardDescription>
-                  Complete summary of all participants and their performance
+                  Complete summary showing quantities won, average pricing, and refunds for all participants
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -892,13 +877,14 @@ export function ManageAuction() {
                             )}
                             {bidder.items.length > 0 && (
                               <Badge className="bg-green-100 text-green-800">
-                                {bidder.items.length} Item{bidder.items.length > 1 ? 's' : ''} Won
+                                {bidder.items.reduce((sum, item) => sum + item.quantity_won, 0)} Units Won
                               </Badge>
                             )}
                           </div>
                           <div className="text-right">
-                            <p className="text-sm text-gray-600">Total Spent: ₹{bidder.total_spent}</p>
-                            <p className="text-sm text-gray-600">Budget Remaining: ₹{bidder.budget_remaining}</p>
+                            <p className="text-sm text-gray-600">Total Spent: ₹{bidder.total_spent.toFixed(2)}</p>
+                            <p className="text-sm text-green-600">Total Refund: ₹{bidder.total_refund.toFixed(2)}</p>
+                            <p className="text-sm text-gray-600">Budget Remaining: ₹{bidder.budget_remaining.toFixed(2)}</p>
                           </div>
                         </div>
                         
@@ -907,16 +893,22 @@ export function ManageAuction() {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Item Name</TableHead>
-                                <TableHead>Starting Bid</TableHead>
-                                <TableHead>Winning Amount</TableHead>
+                                <TableHead>Qty Won</TableHead>
+                                <TableHead>Original Bid/Unit</TableHead>
+                                <TableHead>Paid/Unit (Avg)</TableHead>
+                                <TableHead>Total Paid</TableHead>
+                                <TableHead>Refund</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {bidder.items.map((item, index) => (
                                 <TableRow key={index}>
                                   <TableCell>{item.item_name}</TableCell>
-                                  <TableCell>₹{item.starting_bid}</TableCell>
-                                  <TableCell>₹{item.winning_amount}</TableCell>
+                                  <TableCell>{item.quantity_won}</TableCell>
+                                  <TableCell>₹{item.original_bid_per_unit.toFixed(2)}</TableCell>
+                                  <TableCell>₹{item.price_per_unit_paid.toFixed(2)}</TableCell>
+                                  <TableCell>₹{item.winning_amount.toFixed(2)}</TableCell>
+                                  <TableCell className="text-green-600">₹{item.refund_amount.toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -938,12 +930,12 @@ export function ManageAuction() {
               </CardContent>
             </Card>
 
-            {/* Remaining Items Card */}
+            {/* Remaining Items Card - Updated to show remaining quantities */}
             <Card>
               <CardHeader>
                 <CardTitle>Remaining Items</CardTitle>
                 <CardDescription>
-                  Items that were not won by any bidder
+                  Items with remaining quantities after the auction
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -953,8 +945,9 @@ export function ManageAuction() {
                       <TableRow>
                         <TableHead>Item Name</TableHead>
                         <TableHead>Collection</TableHead>
-                        <TableHead>Starting Bid</TableHead>
-                        <TableHead>Quantity</TableHead>
+                        <TableHead>Starting Bid/Unit</TableHead>
+                        <TableHead>Total Inventory</TableHead>
+                        <TableHead>Remaining Qty</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -964,6 +957,11 @@ export function ManageAuction() {
                           <TableCell>{item.collection_name}</TableCell>
                           <TableCell>₹{item.starting_bid}</TableCell>
                           <TableCell>{item.inventory}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-orange-600">
+                              {item.remaining_quantity}
+                            </Badge>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

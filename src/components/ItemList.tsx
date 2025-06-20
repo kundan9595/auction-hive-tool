@@ -107,7 +107,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="w-5 h-5" />
-          Items ({items.length})
+          Items ({items.length}) - Quantity-Based Bidding
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -117,8 +117,8 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Starting Bid</TableHead>
-                <TableHead>Quantity</TableHead>
+                <TableHead>Starting Bid/Unit</TableHead>
+                <TableHead>Available Quantity</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -131,7 +131,9 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                   </TableCell>
                   <TableCell>₹{item.starting_bid}</TableCell>
                   <TableCell>
-                    <Badge variant="outline">{item.inventory}</Badge>
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                      {item.inventory} units
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
@@ -149,7 +151,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                           <DialogHeader>
                             <DialogTitle>Edit Item</DialogTitle>
                             <DialogDescription>
-                              Update item details.
+                              Update item details for quantity-based bidding.
                             </DialogDescription>
                           </DialogHeader>
                           <form
@@ -186,7 +188,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <Label htmlFor="edit-starting-bid">Starting Bid (₹)</Label>
+                                <Label htmlFor="edit-starting-bid">Starting Bid per Unit (₹)</Label>
                                 <Input 
                                   id="edit-starting-bid" 
                                   name="starting_bid" 
@@ -196,9 +198,12 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                                   defaultValue={item.starting_bid}
                                   required 
                                 />
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Minimum bid amount per unit
+                                </p>
                               </div>
                               <div>
-                                <Label htmlFor="edit-inventory">Quantity</Label>
+                                <Label htmlFor="edit-inventory">Available Quantity</Label>
                                 <Input 
                                   id="edit-inventory" 
                                   name="inventory" 
@@ -207,6 +212,9 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                                   defaultValue={item.inventory}
                                   required 
                                 />
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Total units available for bidding
+                                </p>
                               </div>
                             </div>
                             <DialogFooter>

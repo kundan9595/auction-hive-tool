@@ -15,7 +15,11 @@ export type Database = {
           created_at: string | null
           id: string
           item_id: string
+          original_bid_per_unit: number | null
+          price_per_unit_paid: number | null
           quantity_sold: number | null
+          quantity_won: number | null
+          refund_amount: number | null
           winner_name: string | null
           winning_amount: number | null
           winning_bid_id: string | null
@@ -25,7 +29,11 @@ export type Database = {
           created_at?: string | null
           id?: string
           item_id: string
+          original_bid_per_unit?: number | null
+          price_per_unit_paid?: number | null
           quantity_sold?: number | null
+          quantity_won?: number | null
+          refund_amount?: number | null
           winner_name?: string | null
           winning_amount?: number | null
           winning_bid_id?: string | null
@@ -35,7 +43,11 @@ export type Database = {
           created_at?: string | null
           id?: string
           item_id?: string
+          original_bid_per_unit?: number | null
+          price_per_unit_paid?: number | null
           quantity_sold?: number | null
+          quantity_won?: number | null
+          refund_amount?: number | null
           winner_name?: string | null
           winning_amount?: number | null
           winning_bid_id?: string | null
@@ -123,6 +135,8 @@ export type Database = {
           created_at: string | null
           id: string
           item_id: string
+          price_per_unit: number | null
+          quantity_requested: number
         }
         Insert: {
           auction_id: string
@@ -132,6 +146,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           item_id: string
+          price_per_unit?: number | null
+          quantity_requested?: number
         }
         Update: {
           auction_id?: string
@@ -141,6 +157,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           item_id?: string
+          price_per_unit?: number | null
+          quantity_requested?: number
         }
         Relationships: [
           {
@@ -264,6 +282,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      calculate_average_auction_results: {
+        Args: { auction_id_param: string }
+        Returns: undefined
+      }
       generate_auction_slug: {
         Args: { auction_name: string }
         Returns: string
