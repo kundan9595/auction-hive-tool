@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -336,6 +335,9 @@ export default function BidderForm() {
                   placeholder="Enter your email"
                 />
               </div>
+              <Button type="submit" className="w-full">
+                Continue to Bidding
+              </Button>
             </form>
           </CardContent>
         </Card>
