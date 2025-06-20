@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, AlertCircle } from 'lucide-react';
 
 interface Auction {
   id: string;
@@ -38,18 +38,23 @@ interface BidData {
   [itemId: string]: number;
 }
 
+interface ValidationErrors {
+  [itemId: string]: string;
+}
+
 export function BidderForm() {
   const { slug } = useParams();
   const [currentStep, setCurrentStep] = useState(0);
   const [bidderName, setBidderName] = useState('');
   const [bidderEmail, setBidderEmail] = useState('');
   const [bids, setBids] = useState<BidData>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   // Fetch auction details
   const { data: auction, isLoading } = useQuery({
     queryKey: ['auction', slug],
     queryFn: async () => {
+      console.log('Fetching auction with slug:', slug);
       const { data, error } = await supabase
         .from('auctions')
         .select('*')
@@ -57,7 +62,11 @@ export function BidderForm() {
         .eq('status', 'active')
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching auction:', error);
+        throw error;
+      }
+      console.log('Auction data:', data);
       return data as Auction;
     },
   });
@@ -68,13 +77,19 @@ export function BidderForm() {
     queryFn: async () => {
       if (!auction?.id) return [];
 
+      console.log('Fetching collections for auction:', auction.id);
       const { data: collections, error: collectionsError } = await supabase
         .from('collections')
         .select('*')
         .eq('auction_id', auction.id)
         .order('sort_order');
 
-      if (collectionsError) throw collectionsError;
+      if (collectionsError) {
+        console.error('Error fetching collections:', collectionsError);
+        throw collectionsError;
+      }
+
+      console.log('Collections:', collections);
 
       const { data: items, error: itemsError } = await supabase
         .from('items')
@@ -82,7 +97,12 @@ export function BidderForm() {
         .in('collection_id', collections.map(c => c.id))
         .order('sort_order');
 
-      if (itemsError) throw itemsError;
+      if (itemsError) {
+        console.error('Error fetching items:', itemsError);
+        throw itemsError;
+      }
+
+      console.log('Items:', items);
 
       return collections.map(collection => ({
         ...collection,
@@ -92,22 +112,105 @@ export function BidderForm() {
     enabled: !!auction?.id,
   });
 
+  const submitBidsMutation = useMutation({
+    mutationFn: async (bidEntries: any[]) => {
+      console.log('Submitting bids:', bidEntries);
+      
+      const { data, error } = await supabase
+        .from('bids')
+        .upsert(bidEntries, {
+          onConflict: 'auction_id,item_id,bidder_name',
+        })
+        .select();
+
+      if (error) {
+        console.error('Error submitting bids:', error);
+        throw error;
+      }
+      
+      console.log('Bids submitted successfully:', data);
+      return data;
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Bids Submitted!',
+        description: 'Your bids have been submitted successfully.',
+      });
+      setCurrentStep((collectionsWithItems?.length || 0) + 2);
+    },
+    onError: (error: any) => {
+      console.error('Bid submission failed:', error);
+      toast({
+        title: 'Submission Failed',
+        description: error?.message || 'Failed to submit bids. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const totalBidAmount = Object.values(bids).reduce((sum, bid) => sum + (bid || 0), 0);
   const remainingBudget = (auction?.max_budget_per_bidder || 0) - totalBidAmount;
 
   const updateBid = (itemId: string, amount: number) => {
-    const newBids = { ...bids, [itemId]: amount };
-    const newTotal = Object.values(newBids).reduce((sum, bid) => sum + (bid || 0), 0);
+    setBids(prev => ({ ...prev, [itemId]: amount }));
     
-    if (newTotal <= (auction?.max_budget_per_bidder || 0)) {
-      setBids(newBids);
-    } else {
-      toast({
-        title: 'Budget Exceeded',
-        description: 'This bid would exceed your maximum budget.',
-        variant: 'destructive',
+    // Clear validation error when user updates bid
+    if (validationErrors[itemId]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[itemId];
+        return newErrors;
       });
     }
+  };
+
+  const validateCurrentStep = () => {
+    if (currentStep === 0) {
+      return bidderName.trim().length > 0;
+    }
+
+    if (currentStep > 0 && currentStep <= (collectionsWithItems?.length || 0)) {
+      const currentCollection = collectionsWithItems?.[currentStep - 1];
+      if (!currentCollection) return true;
+
+      const errors: ValidationErrors = {};
+      let hasErrors = false;
+
+      currentCollection.items.forEach((item: Item) => {
+        const bidAmount = bids[item.id] || 0;
+        if (bidAmount > 0 && bidAmount < item.starting_bid) {
+          errors[item.id] = `Bid must be at least ₹${item.starting_bid}`;
+          hasErrors = true;
+        }
+      });
+
+      setValidationErrors(errors);
+      return !hasErrors;
+    }
+
+    return true;
+  };
+
+  const handleNext = () => {
+    if (currentStep === 0 && !bidderName.trim()) {
+      toast({
+        title: 'Name Required',
+        description: 'Please enter your name to continue.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!validateCurrentStep()) {
+      toast({
+        title: 'Invalid Bids',
+        description: 'Please fix the bid amounts before continuing.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setCurrentStep(currentStep + 1);
   };
 
   const submitBids = async () => {
@@ -120,53 +223,27 @@ export function BidderForm() {
       return;
     }
 
-    setIsSubmitting(true);
+    const bidEntries = Object.entries(bids)
+      .filter(([_, amount]) => amount > 0)
+      .map(([itemId, amount]) => ({
+        auction_id: auction.id,
+        item_id: itemId,
+        bidder_name: bidderName.trim(),
+        bidder_email: bidderEmail.trim() || null,
+        bid_amount: amount,
+      }));
 
-    try {
-      const bidEntries = Object.entries(bids)
-        .filter(([_, amount]) => amount > 0)
-        .map(([itemId, amount]) => ({
-          auction_id: auction.id,
-          item_id: itemId,
-          bidder_name: bidderName.trim(),
-          bidder_email: bidderEmail.trim() || null,
-          bid_amount: amount,
-        }));
-
-      if (bidEntries.length === 0) {
-        toast({
-          title: 'No Bids Placed',
-          description: 'Please place at least one bid.',
-          variant: 'destructive',
-        });
-        setIsSubmitting(false);
-        return;
-      }
-
-      const { error } = await supabase
-        .from('bids')
-        .upsert(bidEntries, {
-          onConflict: 'auction_id,item_id,bidder_name',
-        });
-
-      if (error) throw error;
-
+    if (bidEntries.length === 0) {
       toast({
-        title: 'Bids Submitted!',
-        description: 'Your bids have been submitted successfully.',
-      });
-
-      setCurrentStep((collectionsWithItems?.length || 0) + 2);
-    } catch (error) {
-      console.error('Error submitting bids:', error);
-      toast({
-        title: 'Submission Failed',
-        description: 'Failed to submit bids. Please try again.',
+        title: 'No Bids Placed',
+        description: 'Please place at least one bid.',
         variant: 'destructive',
       });
-    } finally {
-      setIsSubmitting(false);
+      return;
     }
+
+    console.log('Preparing to submit bids:', bidEntries);
+    submitBidsMutation.mutate(bidEntries);
   };
 
   if (isLoading) {
@@ -298,21 +375,26 @@ export function BidderForm() {
                         <Label htmlFor={`bid-${item.id}`} className="text-sm font-medium">
                           Your Bid (₹):
                         </Label>
-                        <Input
-                          id={`bid-${item.id}`}
-                          type="number"
-                          min={item.starting_bid}
-                          step="0.01"
-                          value={bids[item.id] || ''}
-                          onChange={(e) => {
-                            const value = parseFloat(e.target.value) || 0;
-                            if (value >= item.starting_bid || value === 0) {
+                        <div className="flex-1">
+                          <Input
+                            id={`bid-${item.id}`}
+                            type="number"
+                            step="0.01"
+                            value={bids[item.id] || ''}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
                               updateBid(item.id, value);
-                            }
-                          }}
-                          placeholder={`Min: ₹${item.starting_bid}`}
-                          className="w-32"
-                        />
+                            }}
+                            placeholder={`Min: ₹${item.starting_bid}`}
+                            className={`w-32 ${validationErrors[item.id] ? 'border-red-500' : ''}`}
+                          />
+                          {validationErrors[item.id] && (
+                            <div className="flex items-center space-x-1 mt-1 text-red-600 text-sm">
+                              <AlertCircle className="w-4 h-4" />
+                              <span>{validationErrors[item.id]}</span>
+                            </div>
+                          )}
+                        </div>
                         {bids[item.id] > 0 && (
                           <Badge variant="outline" className="text-green-600 border-green-600">
                             ₹{bids[item.id]}
@@ -384,11 +466,11 @@ export function BidderForm() {
 
                 <Button
                   onClick={submitBids}
-                  disabled={isSubmitting || Object.values(bids).every(bid => bid === 0)}
+                  disabled={submitBidsMutation.isPending || Object.values(bids).every(bid => bid === 0)}
                   className="w-full"
                   size="lg"
                 >
-                  {isSubmitting ? 'Submitting...' : 'Submit All Bids'}
+                  {submitBidsMutation.isPending ? 'Submitting...' : 'Submit All Bids'}
                   <Check className="w-4 h-4 ml-2" />
                 </Button>
               </div>
@@ -429,17 +511,7 @@ export function BidderForm() {
             </Button>
 
             <Button
-              onClick={() => {
-                if (isFirstStep && !bidderName.trim()) {
-                  toast({
-                    title: 'Name Required',
-                    description: 'Please enter your name to continue.',
-                    variant: 'destructive',
-                  });
-                  return;
-                }
-                setCurrentStep(currentStep + 1);
-              }}
+              onClick={handleNext}
               disabled={isReviewStep}
             >
               Next
