@@ -34,7 +34,7 @@ interface Auction {
   id: string;
   name: string;
   description: string | null;
-  status: string;
+  status: 'draft' | 'active' | 'closed';
   max_budget_per_bidder: number;
   slug: string;
 }
@@ -98,7 +98,7 @@ export function ManageAuction() {
 
   // Toggle auction status
   const toggleStatusMutation = useMutation({
-    mutationFn: async (newStatus: string) => {
+    mutationFn: async (newStatus: 'draft' | 'active' | 'closed') => {
       const { error } = await supabase
         .from('auctions')
         .update({ 

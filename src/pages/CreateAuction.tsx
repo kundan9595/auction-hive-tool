@@ -9,14 +9,26 @@ import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 export function CreateAuction() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+
+    if (!user) {
+      toast({
+        title: 'Authentication Error',
+        description: 'You must be logged in to create an auction.',
+        variant: 'destructive',
+      });
+      setIsLoading(false);
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
@@ -34,6 +46,7 @@ export function CreateAuction() {
       const { data, error } = await supabase
         .from('auctions')
         .insert({
+          admin_id: user.id,
           name,
           description: description || null,
           max_budget_per_bidder: maxBudget,
