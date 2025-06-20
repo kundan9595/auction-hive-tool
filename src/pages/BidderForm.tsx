@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -149,20 +150,10 @@ export default function BidderForm() {
         throw new Error('No bids to submit');
       }
 
-      // First, delete any existing bids for this bidder in this auction
-      // Use only bidder_name since that's what the unique constraint uses
-      const { error: deleteError } = await supabase
-        .from('bids')
-        .delete()
-        .eq('auction_id', auction!.id)
-        .eq('bidder_name', bidderName);
+      console.log('Submitting bids for auction:', auction!.id, 'bidder:', bidderName);
+      console.log('Bid data:', bidArray);
 
-      if (deleteError) {
-        console.error('Error deleting existing bids:', deleteError);
-        throw deleteError; // Don't continue if delete fails
-      }
-
-      // Then insert the new bids
+      // Use upsert instead of delete + insert to handle the unique constraint
       const bidInserts = bidArray.map(bid => ({
         auction_id: auction!.id,
         item_id: bid.itemId,
@@ -172,11 +163,22 @@ export default function BidderForm() {
         quantity_requested: bid.quantity,
       }));
 
+      console.log('Upserting bids:', bidInserts);
+
+      // Upsert bids - this will insert new ones or update existing ones
       const { error } = await supabase
         .from('bids')
-        .insert(bidInserts);
+        .upsert(bidInserts, {
+          onConflict: 'auction_id,item_id,bidder_name', // Handle conflicts on the unique constraint
+          ignoreDuplicates: false // We want to update existing bids, not ignore them
+        });
         
-      if (error) throw error;
+      if (error) {
+        console.error('Error upserting bids:', error);
+        throw error;
+      }
+
+      console.log('Bids submitted successfully');
     },
     onSuccess: () => {
       // Clear saved data
@@ -195,7 +197,7 @@ export default function BidderForm() {
       console.error('Error submitting bids:', error);
       toast({
         title: 'Error',
-        description: 'Failed to submit bids. Please try again.',
+        description: `Failed to submit bids: ${error.message}. Please try again.`,
         variant: 'destructive',
       });
     },
