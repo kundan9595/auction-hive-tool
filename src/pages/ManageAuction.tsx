@@ -274,18 +274,23 @@ export function ManageAuction() {
     }
   };
 
-  // Reset auction mutation
+  // Reset auction mutation - completely wipe everything
   const resetAuctionMutation = useMutation({
     mutationFn: async () => {
       if (!auction?.id) return;
 
-      // Delete all auction results
+      console.log('Starting complete auction reset...');
+
+      // Delete all auction results first
       const { error: resultsError } = await supabase
         .from('auction_results')
         .delete()
         .eq('auction_id', auction.id);
 
-      if (resultsError) throw resultsError;
+      if (resultsError) {
+        console.error('Error deleting auction results:', resultsError);
+        throw resultsError;
+      }
 
       // Delete all bids
       const { error: bidsError } = await supabase
@@ -293,27 +298,45 @@ export function ManageAuction() {
         .delete()
         .eq('auction_id', auction.id);
 
-      if (bidsError) throw bidsError;
+      if (bidsError) {
+        console.error('Error deleting bids:', bidsError);
+        throw bidsError;
+      }
 
-      // Reset auction status to draft
+      // Generate a new slug for the auction to create a fresh bidding link
+      const newSlug = `${auction.slug}-${Date.now()}`;
+
+      // Reset auction to draft status with new slug and clear closed_at
       const { error: auctionError } = await supabase
         .from('auctions')
         .update({ 
           status: 'draft',
+          slug: newSlug,
           closed_at: null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', auction.id);
 
-      if (auctionError) throw auctionError;
+      if (auctionError) {
+        console.error('Error updating auction:', auctionError);
+        throw auctionError;
+      }
+
+      console.log('Auction reset completed successfully with new slug:', newSlug);
+      
+      // Navigate to the new slug
+      navigate(`/auction/${newSlug}/manage`, { replace: true });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['auction', slug] });
-      queryClient.invalidateQueries({ queryKey: ['auction-results', auction?.id] });
-      queryClient.invalidateQueries({ queryKey: ['all-bidders', auction?.id] });
+      // Clear all cached data
+      queryClient.invalidateQueries({ queryKey: ['auction'] });
+      queryClient.invalidateQueries({ queryKey: ['auction-results'] });
+      queryClient.invalidateQueries({ queryKey: ['all-bidders'] });
+      queryClient.invalidateQueries({ queryKey: ['bids'] });
+      
       toast({
-        title: 'Auction Reset',
-        description: 'Auction has been reset successfully. You can now start it again.',
+        title: 'Auction Reset Successfully',
+        description: 'Auction has been completely reset with a new bidding link. All previous data has been cleared.',
       });
     },
     onError: (error) => {
@@ -650,15 +673,41 @@ export function ManageAuction() {
                 )}
                 
                 {auction.status === 'closed' && (
-                  <Button
-                    onClick={() => resetAuctionMutation.mutate()}
-                    variant="outline"
-                    className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
-                    disabled={resetAuctionMutation.isPending}
-                  >
-                    <RefreshCw className={`w-4 h-4 ${resetAuctionMutation.isPending ? 'animate-spin' : ''}`} />
-                    <span>Reset & Restart</span>
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                        disabled={resetAuctionMutation.isPending}
+                      >
+                        <RefreshCw className={`w-4 h-4 ${resetAuctionMutation.isPending ? 'animate-spin' : ''}`} />
+                        <span>Complete Reset & Fresh Start</span>
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Complete Auction Reset</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will completely reset the auction and create a fresh start:
+                          <br />• All bids will be permanently deleted
+                          <br />• All auction results will be cleared
+                          <br />• A new bidding link will be generated
+                          <br />• Auction status will return to draft
+                          <br /><br />
+                          This action cannot be undone and will make it like a brand new auction.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => resetAuctionMutation.mutate()}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          Reset Everything
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
                 
                 <Button
