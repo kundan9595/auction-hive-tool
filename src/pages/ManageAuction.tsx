@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
@@ -37,6 +37,25 @@ interface Auction {
   status: 'draft' | 'active' | 'closed';
   max_budget_per_bidder: number;
   slug: string;
+}
+
+interface BidderResult {
+  bidder_name: string;
+  items: Array<{
+    item_name: string;
+    starting_bid: number;
+    winning_amount: number;
+  }>;
+  total_spent: number;
+  budget_remaining: number;
+}
+
+interface RemainingItem {
+  id: string;
+  name: string;
+  starting_bid: number;
+  inventory: number;
+  collection_name: string;
 }
 
 export function ManageAuction() {
@@ -93,6 +112,70 @@ export function ManageAuction() {
     },
     enabled: !!auction?.id && !!collections,
   });
+
+  // Fetch auction results for closed auctions
+  const { data: auctionResults } = useQuery({
+    queryKey: ['auction-results', auction?.id],
+    queryFn: async () => {
+      if (!auction?.id || auction.status !== 'closed') return null;
+      
+      const { data, error } = await supabase
+        .from('auction_results')
+        .select(`
+          *,
+          items (name, starting_bid),
+          bids (bidder_name)
+        `)
+        .eq('auction_id', auction.id);
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!auction?.id && auction?.status === 'closed',
+  });
+
+  // Process results to get bidder-wise summary
+  const bidderResults: BidderResult[] = auctionResults ? 
+    Object.values(
+      auctionResults.reduce((acc, result) => {
+        const bidderName = result.winner_name;
+        if (!bidderName) return acc;
+
+        if (!acc[bidderName]) {
+          acc[bidderName] = {
+            bidder_name: bidderName,
+            items: [],
+            total_spent: 0,
+            budget_remaining: auction!.max_budget_per_bidder,
+          };
+        }
+
+        acc[bidderName].items.push({
+          item_name: result.items.name,
+          starting_bid: result.items.starting_bid,
+          winning_amount: result.winning_amount || 0,
+        });
+        
+        acc[bidderName].total_spent += result.winning_amount || 0;
+        acc[bidderName].budget_remaining = auction!.max_budget_per_bidder - acc[bidderName].total_spent;
+
+        return acc;
+      }, {} as Record<string, BidderResult>)
+    )
+  : [];
+
+  // Get remaining items (items without winners)
+  const remainingItems: RemainingItem[] = auction?.status === 'closed' && items && auctionResults ? 
+    items
+      .filter(item => !auctionResults.some(result => result.item_id === item.id))
+      .map(item => ({
+        id: item.id,
+        name: item.name,
+        starting_bid: item.starting_bid,
+        inventory: item.inventory,
+        collection_name: collections?.find(c => c.id === item.collection_id)?.name || 'Unknown',
+      }))
+  : [];
 
   // Toggle auction status
   const toggleStatusMutation = useMutation({
@@ -420,6 +503,99 @@ export function ManageAuction() {
             )}
           </CardContent>
         </Card>
+
+        {/* Auction Results - Show only when auction is closed */}
+        {auction.status === 'closed' && (
+          <>
+            {/* Bidder Results Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Auction Results - Bidder Summary</CardTitle>
+                <CardDescription>
+                  Summary of items won by each bidder and their spending
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {bidderResults.length > 0 ? (
+                  <div className="space-y-6">
+                    {bidderResults.map((bidder) => (
+                      <div key={bidder.bidder_name} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-4">
+                          <h4 className="font-semibold text-lg">{bidder.bidder_name}</h4>
+                          <div className="text-right">
+                            <p className="text-sm text-gray-600">Total Spent: ₹{bidder.total_spent}</p>
+                            <p className="text-sm text-gray-600">Budget Remaining: ₹{bidder.budget_remaining}</p>
+                          </div>
+                        </div>
+                        
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Item Name</TableHead>
+                              <TableHead>Starting Bid</TableHead>
+                              <TableHead>Winning Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {bidder.items.map((item, index) => (
+                              <TableRow key={index}>
+                                <TableCell>{item.item_name}</TableCell>
+                                <TableCell>₹{item.starting_bid}</TableCell>
+                                <TableCell>₹{item.winning_amount}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">
+                    No winning bids found for this auction.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Remaining Items Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Remaining Items</CardTitle>
+                <CardDescription>
+                  Items that were not won by any bidder
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {remainingItems.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead>Collection</TableHead>
+                        <TableHead>Starting Bid</TableHead>
+                        <TableHead>Quantity</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {remainingItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.name}</TableCell>
+                          <TableCell>{item.collection_name}</TableCell>
+                          <TableCell>₹{item.starting_bid}</TableCell>
+                          <TableCell>{item.inventory}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">
+                    All items were successfully auctioned off!
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </Layout>
   );
