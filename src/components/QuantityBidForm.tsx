@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Package, Calculator } from 'lucide-react';
+import { Package } from 'lucide-react';
 
 interface Item {
   id: string;
@@ -144,40 +144,6 @@ export function QuantityBidForm({
               </p>
             </div>
           </div>
-
-          {/* Bid Summary */}
-          {(quantityNum > 0 || (initialBid && initialBid.totalBid > 0)) && (
-            <div className="bg-gray-50 p-3 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Calculator className="w-4 h-4" />
-                <span className="font-medium">Bid Summary</span>
-              </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span>Quantity:</span>
-                  <span>{quantityNum || 0} units</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Price per unit:</span>
-                  <span>₹{pricePerUnitNum || 0}</span>
-                </div>
-                <div className="flex justify-between font-medium border-t pt-1">
-                  <span>Total bid:</span>
-                  <span>₹{totalBid || 0}</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>Remaining budget:</span>
-                  <span>₹{remainingBudget}</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>Budget after bid:</span>
-                  <span className={canAfford ? 'text-green-600' : 'text-red-600'}>
-                    ₹{remainingBudget - totalBid}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Validation Messages */}
           {!canAfford && totalBid > 0 && (
