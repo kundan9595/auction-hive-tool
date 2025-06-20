@@ -77,18 +77,20 @@ export function Stepper({
         ))}
       </div>
 
-      {/* Navigation buttons */}
+      {/* Navigation buttons - positioned at bottom right */}
       {showNavigation && (
-        <div className="flex justify-between mt-8">
-          <Button
-            variant="outline"
-            onClick={onPrevious}
-            disabled={!canGoPrevious || currentStep === 0}
-            className="flex items-center gap-2"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous
-          </Button>
+        <div className="fixed bottom-6 right-6 flex gap-3 z-10">
+          {currentStep > 0 && (
+            <Button
+              variant="outline"
+              onClick={onPrevious}
+              disabled={!canGoPrevious}
+              className="flex items-center gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </Button>
+          )}
           
           <Button
             onClick={onNext}

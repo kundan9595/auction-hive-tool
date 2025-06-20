@@ -1,7 +1,6 @@
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -57,7 +56,6 @@ export function QuantityBidForm({
   const canAfford = totalBid <= remainingBudget;
   const validQuantity = quantityNum > 0 && quantityNum <= item.inventory;
   const validPrice = pricePerUnitNum >= item.starting_bid;
-  const canSubmit = canAfford && validQuantity && validPrice && !disabled && totalBid > 0;
 
   const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -73,18 +71,14 @@ export function QuantityBidForm({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (canSubmit) {
+  // Auto-update bid when values change
+  useEffect(() => {
+    if (validQuantity && validPrice && canAfford) {
       onSubmitBid(item.id, quantityNum, pricePerUnitNum, totalBid);
+    } else if (quantityNum === 0 || pricePerUnitNum === 0) {
+      onSubmitBid(item.id, 0, 0, 0);
     }
-  };
-
-  const handleRemoveBid = () => {
-    setQuantity('');
-    setPricePerUnit(item.starting_bid.toString());
-    onSubmitBid(item.id, 0, 0, 0);
-  };
+  }, [quantityNum, pricePerUnitNum, totalBid, canAfford, validQuantity, validPrice]);
 
   // Update form when initialBid changes
   useEffect(() => {
@@ -100,9 +94,9 @@ export function QuantityBidForm({
         <CardTitle className="flex items-center gap-2">
           <Package className="w-5 h-5" />
           {item.name}
-          {initialBid && (
+          {initialBid && initialBid.totalBid > 0 && (
             <Badge className="bg-green-100 text-green-800">
-              Bid Placed
+              Bid: ₹{initialBid.totalBid}
             </Badge>
           )}
         </CardTitle>
@@ -119,7 +113,7 @@ export function QuantityBidForm({
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor={`quantity-${item.id}`}>Quantity</Label>
@@ -152,7 +146,7 @@ export function QuantityBidForm({
           </div>
 
           {/* Bid Summary */}
-          {(quantityNum > 0 || initialBid) && (
+          {(quantityNum > 0 || (initialBid && initialBid.totalBid > 0)) && (
             <div className="bg-gray-50 p-3 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <Calculator className="w-4 h-4" />
@@ -209,30 +203,7 @@ export function QuantityBidForm({
               </AlertDescription>
             </Alert>
           )}
-
-          <div className="flex gap-2">
-            <Button 
-              type="submit" 
-              className="flex-1" 
-              disabled={!canSubmit}
-            >
-              {disabled ? 'Bidding Closed' : 
-               initialBid ? `Update Bid: ₹${totalBid || 0}` : 
-               `Place Bid: ₹${totalBid || 0}`}
-            </Button>
-            
-            {initialBid && (
-              <Button 
-                type="button" 
-                variant="outline"
-                onClick={handleRemoveBid}
-                disabled={disabled}
-              >
-                Remove
-              </Button>
-            )}
-          </div>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );
