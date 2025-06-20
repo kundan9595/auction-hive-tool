@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Play, Pause, Share2, ArrowRight } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Collection {
@@ -97,24 +97,97 @@ export function ManageAuction() {
   // Toggle auction status
   const toggleStatusMutation = useMutation({
     mutationFn: async (newStatus: 'draft' | 'active' | 'closed') => {
+      const updateData: any = { 
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      };
+      
+      if (newStatus === 'closed') {
+        updateData.closed_at = new Date().toISOString();
+      }
+
       const { error } = await supabase
         .from('auctions')
-        .update({ 
-          status: newStatus,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', auction!.id);
 
       if (error) throw error;
+
+      // If closing auction, generate results
+      if (newStatus === 'closed') {
+        await generateAuctionResults();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['auction', slug] });
       toast({
         title: 'Status Updated',
-        description: `Auction is now ${auction?.status === 'active' ? 'paused' : 'active'}.`,
+        description: `Auction has been ${auction?.status === 'active' ? 'paused' : auction?.status === 'draft' ? 'started' : 'closed'}.`,
       });
     },
   });
+
+  // Generate auction results when closing
+  const generateAuctionResults = async () => {
+    if (!auction?.id) return;
+
+    try {
+      // Get all bids for this auction
+      const { data: bids, error: bidsError } = await supabase
+        .from('bids')
+        .select('*')
+        .eq('auction_id', auction.id);
+
+      if (bidsError) throw bidsError;
+
+      // Group bids by item and find highest bidder for each
+      const itemBids = bids?.reduce((acc, bid) => {
+        if (!acc[bid.item_id]) {
+          acc[bid.item_id] = [];
+        }
+        acc[bid.item_id].push(bid);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      // Generate results for each item
+      const results = Object.entries(itemBids || {}).map(([itemId, itemBidList]) => {
+        // Sort by bid amount (highest first)
+        const sortedBids = itemBidList.sort((a, b) => b.bid_amount - a.bid_amount);
+        const winningBid = sortedBids[0];
+
+        return {
+          auction_id: auction.id,
+          item_id: itemId,
+          winning_bid_id: winningBid.id,
+          winner_name: winningBid.bidder_name,
+          winning_amount: winningBid.bid_amount,
+          quantity_sold: 1, // For now, assuming quantity 1 per winner
+        };
+      });
+
+      if (results.length > 0) {
+        const { error: resultsError } = await supabase
+          .from('auction_results')
+          .upsert(results, {
+            onConflict: 'auction_id,item_id',
+          });
+
+        if (resultsError) throw resultsError;
+      }
+
+      toast({
+        title: 'Auction Closed',
+        description: 'Results have been generated successfully.',
+      });
+    } catch (error) {
+      console.error('Error generating auction results:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to generate auction results.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   // Add collection
   const addCollectionMutation = useMutation({
@@ -220,13 +293,35 @@ export function ManageAuction() {
                 )}
                 
                 {auction.status === 'active' && (
+                  <>
+                    <Button
+                      onClick={() => toggleStatusMutation.mutate('draft')}
+                      variant="outline"
+                      className="flex items-center space-x-2"
+                    >
+                      <Pause className="w-4 h-4" />
+                      <span>Pause Auction</span>
+                    </Button>
+                    
+                    <Button
+                      onClick={() => toggleStatusMutation.mutate('closed')}
+                      variant="destructive"
+                      className="flex items-center space-x-2"
+                    >
+                      <Square className="w-4 h-4" />
+                      <span>Close Auction</span>
+                    </Button>
+                  </>
+                )}
+                
+                {auction.status === 'active' && (
                   <Button
-                    onClick={() => toggleStatusMutation.mutate('draft')}
+                    onClick={() => navigate(`/auction/${slug}/monitor`)}
                     variant="outline"
                     className="flex items-center space-x-2"
                   >
-                    <Pause className="w-4 h-4" />
-                    <span>Pause Auction</span>
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Monitor</span>
                   </Button>
                 )}
                 

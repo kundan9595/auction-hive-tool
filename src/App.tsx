@@ -12,6 +12,7 @@ import { Auth } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
 import { CreateAuction } from "./pages/CreateAuction";
 import { ManageAuction } from "./pages/ManageAuction";
+import { MonitorAuction } from "./pages/MonitorAuction";
 import { CollectionDetail } from "./pages/CollectionDetail";
 import { BidderForm } from "./pages/BidderForm";
 import NotFound from "./pages/NotFound";
@@ -44,6 +45,11 @@ const App = () => (
             <Route path="/auction/:slug/manage" element={
               <ProtectedRoute>
                 <ManageAuction />
+              </ProtectedRoute>
+            } />
+            <Route path="/auction/:slug/monitor" element={
+              <ProtectedRoute>
+                <MonitorAuction />
               </ProtectedRoute>
             } />
             <Route path="/auction/:slug/collection/:collectionId" element={

@@ -156,7 +156,7 @@ export function BidderForm() {
         description: 'Your bids have been submitted successfully.',
       });
 
-      setCurrentStep(collectionsWithItems?.length || 0);
+      setCurrentStep((collectionsWithItems?.length || 0) + 2);
     } catch (error) {
       console.error('Error submitting bids:', error);
       toast({
@@ -195,9 +195,11 @@ export function BidderForm() {
     );
   }
 
+  const totalSteps = (collectionsWithItems?.length || 0) + 2; // +2 for bidder info and review
   const isFirstStep = currentStep === 0;
-  const isLastStep = currentStep === (collectionsWithItems?.length || 0);
-  const currentCollection = collectionsWithItems?.[currentStep - 1];
+  const isReviewStep = currentStep === (collectionsWithItems?.length || 0) + 1;
+  const isSuccessStep = currentStep === (collectionsWithItems?.length || 0) + 2;
+  const currentCollection = collectionsWithItems?.[currentStep - 1]; // Step 1-N are collections
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -214,14 +216,14 @@ export function BidderForm() {
         {/* Progress */}
         <div className="mb-8">
           <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-            <span>Step {currentStep + 1} of {(collectionsWithItems?.length || 0) + 2}</span>
+            <span>Step {currentStep + 1} of {totalSteps}</span>
             <span>Budget Used: ₹{totalBidAmount} / ₹{auction.max_budget_per_bidder}</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
               className="bg-blue-600 h-2 rounded-full transition-all duration-300"
               style={{
-                width: `${((currentStep + 1) / ((collectionsWithItems?.length || 0) + 2)) * 100}%`
+                width: `${((currentStep + 1) / totalSteps) * 100}%`
               }}
             ></div>
           </div>
@@ -230,7 +232,7 @@ export function BidderForm() {
         {/* Content */}
         <Card>
           <CardContent className="p-8">
-            {/* Step 1: Bidder Information */}
+            {/* Step 0: Bidder Information */}
             {isFirstStep && (
               <div className="space-y-6">
                 <div>
@@ -266,8 +268,8 @@ export function BidderForm() {
               </div>
             )}
 
-            {/* Collection Steps */}
-            {!isFirstStep && !isLastStep && currentCollection && (
+            {/* Steps 1-N: Collection Steps */}
+            {!isFirstStep && !isReviewStep && !isSuccessStep && currentCollection && (
               <div className="space-y-6">
                 <div>
                   <CardTitle className="text-xl mb-2">{currentCollection.name}</CardTitle>
@@ -332,8 +334,8 @@ export function BidderForm() {
               </div>
             )}
 
-            {/* Final Step: Review */}
-            {isLastStep && (
+            {/* Review Step */}
+            {isReviewStep && (
               <div className="space-y-6">
                 <div>
                   <CardTitle className="text-xl mb-2">Review Your Bids</CardTitle>
@@ -393,7 +395,7 @@ export function BidderForm() {
             )}
 
             {/* Success Step */}
-            {currentStep > (collectionsWithItems?.length || 0) && (
+            {isSuccessStep && (
               <div className="text-center space-y-4">
                 <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
                   <Check className="w-8 h-8 text-green-600" />
@@ -415,7 +417,7 @@ export function BidderForm() {
         </Card>
 
         {/* Navigation */}
-        {currentStep <= (collectionsWithItems?.length || 0) && (
+        {!isSuccessStep && (
           <div className="flex justify-between mt-6">
             <Button
               variant="outline"
@@ -438,7 +440,7 @@ export function BidderForm() {
                 }
                 setCurrentStep(currentStep + 1);
               }}
-              disabled={isLastStep}
+              disabled={isReviewStep}
             >
               Next
               <ArrowRight className="w-4 h-4 ml-2" />
