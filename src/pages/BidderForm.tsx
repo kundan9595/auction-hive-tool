@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -5,10 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, AlertCircle, DollarSign } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, AlertCircle, DollarSign, Trophy, Target, Zap, Star, Gift } from 'lucide-react';
 
 interface Auction {
   id: string;
@@ -132,8 +134,8 @@ export function BidderForm() {
     },
     onSuccess: () => {
       toast({
-        title: 'Bids Submitted Successfully!',
-        description: 'Your bids have been recorded. Good luck!',
+        title: '🎉 Bids Submitted Successfully!',
+        description: 'Your bids have been recorded. Good luck in the auction!',
       });
       setCurrentStep((collectionsWithItems?.length || 0) + 2);
     },
@@ -150,6 +152,7 @@ export function BidderForm() {
   const totalBidAmount = Object.values(bids).reduce((sum, bid) => sum + (bid || 0), 0);
   const remainingBudget = (auction?.max_budget_per_bidder || 0) - totalBidAmount;
   const isBudgetExceeded = totalBidAmount > (auction?.max_budget_per_bidder || 0);
+  const budgetUsedPercentage = ((totalBidAmount / (auction?.max_budget_per_bidder || 1)) * 100);
 
   const updateBid = (itemId: string, amount: number) => {
     setBids(prev => ({ ...prev, [itemId]: amount }));
@@ -265,12 +268,21 @@ export function BidderForm() {
     submitBidsMutation.mutate(bidEntries);
   };
 
+  const getBudgetColor = () => {
+    if (budgetUsedPercentage > 90) return 'bg-red-500';
+    if (budgetUsedPercentage > 70) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-pulse text-center">
-          <div className="h-8 bg-gray-200 rounded w-48 mx-auto mb-4"></div>
-          <div className="h-4 bg-gray-200 rounded w-32 mx-auto"></div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-100 to-indigo-200 flex items-center justify-center">
+        <div className="text-center">
+          <div className="auction-gradient w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Target className="w-8 h-8 text-white" />
+          </div>
+          <div className="text-xl font-semibold text-gray-700">Loading auction...</div>
+          <div className="text-gray-500">Get ready to bid! 🎯</div>
         </div>
       </div>
     );
@@ -278,11 +290,14 @@ export function BidderForm() {
 
   if (!auction) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-100 to-indigo-200 flex items-center justify-center">
+        <Card className="max-w-md border-2 border-red-200 bg-red-50">
           <CardContent className="text-center py-12">
-            <h2 className="text-xl font-semibold mb-2">Auction Not Available</h2>
-            <p className="text-gray-600">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-xl font-semibold mb-2 text-red-800">Auction Not Available</h2>
+            <p className="text-red-600">
               This auction is not currently active or doesn't exist.
             </p>
           </CardContent>
@@ -291,185 +306,242 @@ export function BidderForm() {
     );
   }
 
-  const totalSteps = (collectionsWithItems?.length || 0) + 2; // +2 for bidder info and review
+  const totalSteps = (collectionsWithItems?.length || 0) + 2;
   const isFirstStep = currentStep === 0;
   const isReviewStep = currentStep === (collectionsWithItems?.length || 0) + 1;
   const isSuccessStep = currentStep === (collectionsWithItems?.length || 0) + 2;
-  const currentCollection = collectionsWithItems?.[currentStep - 1]; // Step 1-N are collections
+  const currentCollection = collectionsWithItems?.[currentStep - 1];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-purple-100 via-blue-100 to-indigo-200">
       <div className="max-w-4xl mx-auto py-8 px-4">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">{auction.name}</h1>
-          <p className="text-gray-600 mt-2">{auction.description}</p>
-          <Badge className="mt-4 bg-green-100 text-green-800">
-            Max Budget: ₹{auction.max_budget_per_bidder}
-          </Badge>
-        </div>
-
-        {/* Progress */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-            <span>Step {currentStep + 1} of {totalSteps}</span>
-            <div className="flex items-center space-x-2">
-              <DollarSign className="w-4 h-4" />
-              <span className={isBudgetExceeded ? 'text-red-600 font-bold' : ''}>
-                Budget Used: ₹{totalBidAmount.toFixed(2)} / ₹{auction.max_budget_per_bidder}
-              </span>
+        {/* Vibrant Header */}
+        <div className="auction-gradient rounded-2xl p-8 text-white text-center mb-8 relative overflow-hidden">
+          <div className="absolute inset-0 bg-white/10 backdrop-blur-sm"></div>
+          <div className="relative z-10">
+            <div className="flex items-center justify-center space-x-3 mb-4">
+              <Trophy className="w-8 h-8" />
+              <h1 className="text-3xl font-bold">{auction.name}</h1>
+              <Trophy className="w-8 h-8" />
+            </div>
+            <p className="text-white/90 text-lg mb-4">{auction.description}</p>
+            <div className="flex items-center justify-center space-x-4">
+              <Badge className="bg-white/20 text-white border-white/30 text-lg px-4 py-2">
+                <DollarSign className="w-5 h-5 mr-2" />
+                Max Budget: ₹{auction.max_budget_per_bidder}
+              </Badge>
             </div>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{
-                width: `${((currentStep + 1) / totalSteps) * 100}%`
-              }}
-            ></div>
+        </div>
+
+        {/* Enhanced Progress Section */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between text-sm text-gray-700 mb-3">
+            <div className="flex items-center space-x-2">
+              <Star className="w-4 h-4 text-yellow-500" />
+              <span className="font-medium">Step {currentStep + 1} of {totalSteps}</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className={`flex items-center space-x-2 px-3 py-1 rounded-full ${isBudgetExceeded ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                <DollarSign className="w-4 h-4" />
+                <span className="font-bold">
+                  ₹{totalBidAmount.toFixed(2)} / ₹{auction.max_budget_per_bidder}
+                </span>
+              </div>
+            </div>
           </div>
+          
+          <div className="relative">
+            <Progress 
+              value={((currentStep + 1) / totalSteps) * 100} 
+              className="h-3 bg-white/60 budget-progress"
+            />
+          </div>
+          
+          {/* Budget Visual Indicator */}
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-gray-600 mb-1">
+              <span>Budget Usage</span>
+              <span>{budgetUsedPercentage.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all duration-500 ${getBudgetColor()}`}
+                style={{ width: `${Math.min(budgetUsedPercentage, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
           {isBudgetExceeded && (
-            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-              <div className="flex items-center space-x-2 text-red-700 text-sm">
-                <AlertCircle className="w-4 h-4" />
-                <span>⚠️ You have exceeded your budget limit! Please reduce your bids to continue.</span>
+            <div className="mt-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+              <div className="flex items-center space-x-3 text-red-700">
+                <AlertCircle className="w-5 h-5" />
+                <span className="font-medium">⚠️ Budget exceeded! Please reduce your bids to continue.</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Content */}
-        <Card>
-          <CardContent className="p-8">
-            {/* Step 0: Bidder Information */}
+        {/* Enhanced Content Cards */}
+        <div className="gradient-border mb-8">
+          <div className="gradient-border-content p-8">
+            {/* Step 0: Welcome & Bidder Information */}
             {isFirstStep && (
-              <div className="space-y-6">
-                <div>
-                  <CardTitle className="text-xl mb-2">Welcome to the Auction</CardTitle>
-                  <CardDescription>
-                    Please provide your information to start bidding.
+              <div className="space-y-8">
+                <div className="text-center">
+                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Target className="w-10 h-10 text-white" />
+                  </div>
+                  <CardTitle className="text-2xl mb-3 auction-text-gradient">Welcome to the Auction! 🎯</CardTitle>
+                  <CardDescription className="text-lg">
+                    Ready to place some exciting bids? Let's get you started!
                   </CardDescription>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6 max-w-md mx-auto">
                   <div>
-                    <Label htmlFor="bidderName">Name / Team Name *</Label>
+                    <Label htmlFor="bidderName" className="text-lg font-medium text-gray-700">
+                      🏷️ Name / Team Name *
+                    </Label>
                     <Input
                       id="bidderName"
                       value={bidderName}
                       onChange={(e) => setBidderName(e.target.value)}
                       placeholder="Enter your name or team name"
                       required
+                      className="mt-2 text-lg p-4 border-2 border-purple-200 focus:border-purple-400 rounded-xl"
                     />
                   </div>
 
                   <div>
-                    <Label htmlFor="bidderEmail">Email (Optional)</Label>
+                    <Label htmlFor="bidderEmail" className="text-lg font-medium text-gray-700">
+                      📧 Email (Optional)
+                    </Label>
                     <Input
                       id="bidderEmail"
                       type="email"
                       value={bidderEmail}
                       onChange={(e) => setBidderEmail(e.target.value)}
                       placeholder="your@email.com"
+                      className="mt-2 text-lg p-4 border-2 border-purple-200 focus:border-purple-400 rounded-xl"
                     />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Steps 1-N: Collection Steps */}
+            {/* Collection Steps - Enhanced */}
             {!isFirstStep && !isReviewStep && !isSuccessStep && currentCollection && (
-              <div className="space-y-6">
-                <div>
-                  <CardTitle className="text-xl mb-2">{currentCollection.name}</CardTitle>
-                  <CardDescription>
-                    {currentCollection.description || 'Place your bids for items in this collection.'}
+              <div className="space-y-8">
+                <div className="text-center">
+                  <div className="w-16 h-16 auction-gradient rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Gift className="w-8 h-8 text-white" />
+                  </div>
+                  <CardTitle className="text-2xl mb-3 auction-text-gradient">{currentCollection.name}</CardTitle>
+                  <CardDescription className="text-lg">
+                    {currentCollection.description || 'Place your bids for items in this collection! 🎲'}
                   </CardDescription>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {currentCollection.items.map((item: Item) => (
-                    <div key={item.id} className="border rounded-lg p-4">
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h4 className="font-medium">{item.name}</h4>
-                          {item.description && (
-                            <p className="text-sm text-gray-600 mt-1">{item.description}</p>
-                          )}
-                          <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                            <span>Starting Bid: ₹{item.starting_bid}</span>
-                            <span>Available: {item.inventory}</span>
+                    <div key={item.id} className="gradient-border">
+                      <div className="gradient-border-content p-6">
+                        <div className="flex justify-between items-start mb-6">
+                          <div className="flex-1">
+                            <h4 className="text-xl font-bold text-gray-900 mb-2">{item.name}</h4>
+                            {item.description && (
+                              <p className="text-gray-600 mb-3">{item.description}</p>
+                            )}
+                            <div className="flex items-center space-x-6 text-sm">
+                              <div className="flex items-center space-x-2 bg-blue-50 px-3 py-2 rounded-lg">
+                                <Target className="w-4 h-4 text-blue-600" />
+                                <span className="font-medium text-blue-700">Starting: ₹{item.starting_bid}</span>
+                              </div>
+                              <div className="flex items-center space-x-2 bg-green-50 px-3 py-2 rounded-lg">
+                                <Zap className="w-4 h-4 text-green-600" />
+                                <span className="font-medium text-green-700">Available: {item.inventory}</span>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex items-center space-x-4">
-                        <Label htmlFor={`bid-${item.id}`} className="text-sm font-medium">
-                          Your Bid (₹):
-                        </Label>
-                        <div className="flex-1">
-                          <Input
-                            id={`bid-${item.id}`}
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={bids[item.id] || ''}
-                            onChange={(e) => {
-                              const value = parseFloat(e.target.value) || 0;
-                              updateBid(item.id, value);
-                            }}
-                            placeholder={`Min: ₹${item.starting_bid}`}
-                            className={`w-32 ${validationErrors[item.id] ? 'border-red-500' : ''}`}
-                          />
-                          {validationErrors[item.id] && (
-                            <div className="flex items-center space-x-1 mt-1 text-red-600 text-sm">
-                              <AlertCircle className="w-4 h-4" />
-                              <span>{validationErrors[item.id]}</span>
-                            </div>
+                        <div className="flex items-center space-x-4">
+                          <Label htmlFor={`bid-${item.id}`} className="text-lg font-medium text-gray-700">
+                            💰 Your Bid (₹):
+                          </Label>
+                          <div className="flex-1 max-w-xs">
+                            <Input
+                              id={`bid-${item.id}`}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={bids[item.id] || ''}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                updateBid(item.id, value);
+                              }}
+                              placeholder={`Min: ₹${item.starting_bid}`}
+                              className={`text-lg p-3 border-2 rounded-xl ${
+                                validationErrors[item.id] 
+                                  ? 'border-red-400 bg-red-50' 
+                                  : 'border-purple-200 focus:border-purple-400'
+                              }`}
+                            />
+                            {validationErrors[item.id] && (
+                              <div className="flex items-center space-x-2 mt-2 text-red-600">
+                                <AlertCircle className="w-4 h-4" />
+                                <span className="text-sm">{validationErrors[item.id]}</span>
+                              </div>
+                            )}
+                          </div>
+                          {bids[item.id] > 0 && (
+                            <Badge className="bg-green-100 text-green-800 border-green-300 text-lg px-4 py-2">
+                              ✓ ₹{bids[item.id]}
+                            </Badge>
                           )}
                         </div>
-                        {bids[item.id] > 0 && (
-                          <Badge variant="outline" className="text-green-600 border-green-600">
-                            ₹{bids[item.id]}
-                          </Badge>
-                        )}
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div className={`p-4 rounded-lg ${isBudgetExceeded ? 'bg-red-50 border border-red-200' : 'bg-blue-50'}`}>
-                  <div className="flex justify-between text-sm">
-                    <span>Remaining Budget:</span>
-                    <span className={remainingBudget < 0 ? 'text-red-600 font-bold' : 'text-green-600 font-medium'}>
+                {/* Budget Summary for Current Step */}
+                <div className={`p-6 rounded-xl ${isBudgetExceeded ? 'bg-red-50 border-2 border-red-200' : 'bg-blue-50 border-2 border-blue-200'}`}>
+                  <div className="flex justify-between items-center text-lg">
+                    <span className="font-medium">Remaining Budget:</span>
+                    <span className={`font-bold ${remainingBudget < 0 ? 'text-red-600' : 'text-green-600'}`}>
                       ₹{remainingBudget.toFixed(2)}
                     </span>
                   </div>
                   {isBudgetExceeded && (
-                    <div className="mt-2 text-xs text-red-600">
-                      <AlertCircle className="w-3 h-3 inline mr-1" />
-                      Budget exceeded! Reduce your bids to continue.
+                    <div className="mt-3 text-red-600 flex items-center space-x-2">
+                      <AlertCircle className="w-5 h-5" />
+                      <span className="font-medium">Budget exceeded! Reduce your bids to continue.</span>
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Review Step */}
+            {/* Review Step - Enhanced */}
             {isReviewStep && (
-              <div className="space-y-6">
-                <div>
-                  <CardTitle className="text-xl mb-2">Review Your Bids</CardTitle>
-                  <CardDescription>
-                    Please review your bids before submitting.
+              <div className="space-y-8">
+                <div className="text-center">
+                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Check className="w-10 h-10 text-white" />
+                  </div>
+                  <CardTitle className="text-2xl mb-3 auction-text-gradient">Review Your Bids 🔍</CardTitle>
+                  <CardDescription className="text-lg">
+                    Take a final look before submitting your bids!
                   </CardDescription>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="font-medium mb-2">Bidder Information</h4>
-                    <p><strong>Name:</strong> {bidderName}</p>
-                    {bidderEmail && <p><strong>Email:</strong> {bidderEmail}</p>}
+                <div className="space-y-6">
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl">
+                    <h4 className="font-bold text-lg mb-3 text-gray-800">👤 Bidder Information</h4>
+                    <p className="text-gray-700"><strong>Name:</strong> {bidderName}</p>
+                    {bidderEmail && <p className="text-gray-700"><strong>Email:</strong> {bidderEmail}</p>}
                   </div>
 
                   {collectionsWithItems?.map((collection) => {
@@ -477,96 +549,124 @@ export function BidderForm() {
                     if (collectionBids.length === 0) return null;
 
                     return (
-                      <div key={collection.id} className="border rounded-lg p-4">
-                        <h4 className="font-medium mb-3">{collection.name}</h4>
-                        <div className="space-y-2">
-                          {collectionBids.map((item: Item) => (
-                            <div key={item.id} className="flex justify-between items-center">
-                              <span className="text-sm">{item.name}</span>
-                              <Badge variant="outline">₹{bids[item.id]}</Badge>
-                            </div>
-                          ))}
+                      <div key={collection.id} className="gradient-border">
+                        <div className="gradient-border-content p-6">
+                          <h4 className="font-bold text-lg mb-4 auction-text-gradient">{collection.name}</h4>
+                          <div className="space-y-3">
+                            {collectionBids.map((item: Item) => (
+                              <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                <span className="font-medium">{item.name}</span>
+                                <Badge className="bg-green-100 text-green-800 border-green-300 text-lg px-3 py-1">
+                                  ₹{bids[item.id]}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     );
                   })}
 
-                  <div className={`p-4 rounded-lg ${isBudgetExceeded ? 'bg-red-50 border border-red-200' : 'bg-blue-50'}`}>
-                    <div className="flex justify-between text-lg font-medium">
-                      <span>Total Bid Amount:</span>
-                      <span className={isBudgetExceeded ? 'text-red-600' : ''}>₹{totalBidAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-gray-600 mt-1">
-                      <span>Budget Limit:</span>
-                      <span>₹{auction.max_budget_per_bidder}</span>
-                    </div>
-                    <div className="flex justify-between text-sm mt-1">
-                      <span>Remaining Budget:</span>
-                      <span className={remainingBudget < 0 ? 'text-red-600 font-bold' : 'text-green-600'}>
-                        ₹{remainingBudget.toFixed(2)}
-                      </span>
-                    </div>
-                    {isBudgetExceeded && (
-                      <div className="mt-2 text-sm text-red-600 flex items-center space-x-1">
-                        <AlertCircle className="w-4 h-4" />
-                        <span>You must reduce your bids to submit.</span>
+                  {/* Final Budget Summary */}
+                  <div className={`p-6 rounded-xl ${isBudgetExceeded ? 'bg-red-50 border-2 border-red-200' : 'bg-green-50 border-2 border-green-200'}`}>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-xl font-bold">
+                        <span>Total Bid Amount:</span>
+                        <span className={isBudgetExceeded ? 'text-red-600' : 'text-green-600'}>
+                          ₹{totalBidAmount.toFixed(2)}
+                        </span>
                       </div>
-                    )}
+                      <div className="flex justify-between text-gray-600">
+                        <span>Budget Limit:</span>
+                        <span>₹{auction.max_budget_per_bidder}</span>
+                      </div>
+                      <div className="flex justify-between font-medium">
+                        <span>Remaining Budget:</span>
+                        <span className={remainingBudget < 0 ? 'text-red-600' : 'text-green-600'}>
+                          ₹{remainingBudget.toFixed(2)}
+                        </span>
+                      </div>
+                      {isBudgetExceeded && (
+                        <div className="mt-4 text-red-600 flex items-center space-x-2">
+                          <AlertCircle className="w-5 h-5" />
+                          <span className="font-medium">You must reduce your bids to submit.</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 <Button
                   onClick={submitBids}
                   disabled={submitBidsMutation.isPending || Object.values(bids).every(bid => bid === 0) || isBudgetExceeded}
-                  className="w-full"
+                  className="w-full auction-gradient text-white text-xl py-6 rounded-xl shadow-lg hover:shadow-xl"
                   size="lg"
                 >
-                  {submitBidsMutation.isPending ? 'Submitting...' : 'Submit All Bids'}
-                  <Check className="w-4 h-4 ml-2" />
+                  {submitBidsMutation.isPending ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                      <span>Submitting...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <Trophy className="w-6 h-6" />
+                      <span>Submit All Bids</span>
+                      <Trophy className="w-6 h-6" />
+                    </div>
+                  )}
                 </Button>
               </div>
             )}
 
-            {/* Success Step */}
+            {/* Success Step - Celebration */}
             {isSuccessStep && (
-              <div className="text-center space-y-4">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                  <Check className="w-8 h-8 text-green-600" />
+              <div className="text-center space-y-8 celebration-bounce">
+                <div className="w-24 h-24 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-2xl">
+                  <Trophy className="w-12 h-12 text-white" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl mb-2 text-green-900">Bids Submitted Successfully!</CardTitle>
-                  <CardDescription>
-                    Thank you for participating. You will be notified of the results once the auction closes.
+                  <CardTitle className="text-3xl mb-4 auction-text-gradient">
+                    🎉 Congratulations! Bids Submitted! 🎉
+                  </CardTitle>
+                  <CardDescription className="text-xl">
+                    Your bids are in the system! May the best bidder win! 🏆
                   </CardDescription>
                 </div>
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <p className="text-sm text-green-700">
-                    <strong>Total Amount Bid:</strong> ₹{totalBidAmount.toFixed(2)}
-                  </p>
+                <div className="bg-gradient-to-r from-green-50 to-blue-50 p-8 rounded-2xl border-2 border-green-200">
+                  <div className="space-y-3">
+                    <p className="text-lg font-bold text-green-800">
+                      🎯 Total Amount Bid: ₹{totalBidAmount.toFixed(2)}
+                    </p>
+                    <p className="text-green-700">
+                      You'll be notified of the results once the auction closes!
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        {/* Navigation */}
+        {/* Enhanced Navigation */}
         {!isSuccessStep && (
-          <div className="flex justify-between mt-6">
+          <div className="flex justify-between">
             <Button
               variant="outline"
               onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
               disabled={currentStep === 0}
+              className="border-2 border-purple-200 hover:bg-purple-50 text-lg px-6 py-3"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
+              <ArrowLeft className="w-5 h-5 mr-2" />
               Previous
             </Button>
 
             <Button
               onClick={handleNext}
               disabled={isReviewStep}
+              className="auction-gradient text-white text-lg px-6 py-3 shadow-lg hover:shadow-xl"
             >
               Next
-              <ArrowRight className="w-4 h-4 ml-2" />
+              <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
           </div>
         )}

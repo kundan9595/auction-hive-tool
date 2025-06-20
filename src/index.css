@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -37,47 +38,42 @@
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* New vibrant auction colors */
+    --auction-primary: 259 94% 51%;
+    --auction-secondary: 217 91% 60%;
+    --auction-accent: 43 96% 56%;
+    --auction-success: 142 76% 36%;
+    --auction-warning: 38 92% 50%;
+    --auction-danger: 0 84% 60%;
+    --auction-gradient-start: 259 94% 51%;
+    --auction-gradient-end: 217 91% 60%;
   }
 
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-
     --card: 222.2 84% 4.9%;
     --card-foreground: 210 40% 98%;
-
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
-
     --primary: 210 40% 98%;
     --primary-foreground: 222.2 47.4% 11.2%;
-
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
-
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
-
     --accent: 217.2 32.6% 17.5%;
     --accent-foreground: 210 40% 98%;
-
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 212.7 26.8% 83.9%;
@@ -99,5 +95,49 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .auction-gradient {
+    background: linear-gradient(135deg, hsl(var(--auction-gradient-start)), hsl(var(--auction-gradient-end)));
+  }
+  
+  .auction-text-gradient {
+    background: linear-gradient(135deg, hsl(var(--auction-gradient-start)), hsl(var(--auction-gradient-end)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-xl hover:scale-105;
+  }
+  
+  .budget-progress {
+    @apply transition-all duration-500 ease-in-out;
+  }
+  
+  .celebration-bounce {
+    animation: celebration 0.6s ease-in-out;
+  }
+  
+  @keyframes celebration {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  
+  .pulse-success {
+    @apply animate-pulse bg-green-100 border-green-300;
+  }
+  
+  .gradient-border {
+    background: linear-gradient(135deg, hsl(var(--auction-gradient-start)), hsl(var(--auction-gradient-end)));
+    padding: 2px;
+    border-radius: 12px;
+  }
+  
+  .gradient-border-content {
+    @apply bg-white rounded-[10px] h-full w-full;
   }
 }
