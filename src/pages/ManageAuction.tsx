@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Collection {
@@ -134,34 +134,46 @@ export function ManageAuction() {
     enabled: !!auction?.id && auction?.status === 'closed',
   });
 
-  // Process results to get bidder-wise summary
-  const bidderResults: BidderResult[] = auctionResults ? 
-    Object.values(
-      auctionResults.reduce((acc, result) => {
-        const bidderName = result.winner_name;
-        if (!bidderName) return acc;
+  // Fetch all bidders for this auction
+  const { data: allBidders } = useQuery({
+    queryKey: ['all-bidders', auction?.id],
+    queryFn: async () => {
+      if (!auction?.id || auction.status !== 'closed') return [];
+      
+      const { data, error } = await supabase
+        .from('bids')
+        .select('bidder_name')
+        .eq('auction_id', auction.id);
 
-        if (!acc[bidderName]) {
-          acc[bidderName] = {
-            bidder_name: bidderName,
-            items: [],
-            total_spent: 0,
-            budget_remaining: auction!.max_budget_per_bidder,
-          };
-        }
+      if (error) throw error;
+      
+      // Get unique bidder names
+      const uniqueBidders = [...new Set(data.map(bid => bid.bidder_name))];
+      return uniqueBidders;
+    },
+    enabled: !!auction?.id && auction?.status === 'closed',
+  });
 
-        acc[bidderName].items.push({
-          item_name: result.items.name,
-          starting_bid: result.items.starting_bid,
-          winning_amount: result.winning_amount || 0,
-        });
-        
-        acc[bidderName].total_spent += result.winning_amount || 0;
-        acc[bidderName].budget_remaining = auction!.max_budget_per_bidder - acc[bidderName].total_spent;
-
-        return acc;
-      }, {} as Record<string, BidderResult>)
-    )
+  // Process results to get bidder-wise summary (including those who didn't win)
+  const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders ? 
+    allBidders.map(bidderName => {
+      const bidderWins = auctionResults.filter(result => result.winner_name === bidderName);
+      
+      const items = bidderWins.map(result => ({
+        item_name: result.items.name,
+        starting_bid: result.items.starting_bid,
+        winning_amount: result.winning_amount || 0,
+      }));
+      
+      const totalSpent = bidderWins.reduce((sum, result) => sum + (result.winning_amount || 0), 0);
+      
+      return {
+        bidder_name: bidderName,
+        items,
+        total_spent: totalSpent,
+        budget_remaining: auction!.max_budget_per_bidder - totalSpent,
+      };
+    })
   : [];
 
   // Get remaining items (items without winners)
@@ -271,6 +283,58 @@ export function ManageAuction() {
       });
     }
   };
+
+  // Reset auction mutation
+  const resetAuctionMutation = useMutation({
+    mutationFn: async () => {
+      if (!auction?.id) return;
+
+      // Delete all auction results
+      const { error: resultsError } = await supabase
+        .from('auction_results')
+        .delete()
+        .eq('auction_id', auction.id);
+
+      if (resultsError) throw resultsError;
+
+      // Delete all bids
+      const { error: bidsError } = await supabase
+        .from('bids')
+        .delete()
+        .eq('auction_id', auction.id);
+
+      if (bidsError) throw bidsError;
+
+      // Reset auction status to draft
+      const { error: auctionError } = await supabase
+        .from('auctions')
+        .update({ 
+          status: 'draft',
+          closed_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', auction.id);
+
+      if (auctionError) throw auctionError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auction', slug] });
+      queryClient.invalidateQueries({ queryKey: ['auction-results', auction?.id] });
+      queryClient.invalidateQueries({ queryKey: ['all-bidders', auction?.id] });
+      toast({
+        title: 'Auction Reset',
+        description: 'Auction has been reset successfully. You can now start it again.',
+      });
+    },
+    onError: (error) => {
+      console.error('Error resetting auction:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to reset auction. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   // Add collection
   const addCollectionMutation = useMutation({
@@ -397,14 +461,15 @@ export function ManageAuction() {
                   </>
                 )}
                 
-                {auction.status === 'active' && (
+                {auction.status === 'closed' && (
                   <Button
-                    onClick={() => navigate(`/auction/${slug}/monitor`)}
+                    onClick={() => resetAuctionMutation.mutate()}
                     variant="outline"
-                    className="flex items-center space-x-2"
+                    className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                    disabled={resetAuctionMutation.isPending}
                   >
-                    <BarChart3 className="w-4 h-4" />
-                    <span>Monitor</span>
+                    <RefreshCw className={`w-4 h-4 ${resetAuctionMutation.isPending ? 'animate-spin' : ''}`} />
+                    <span>Reset & Restart</span>
                   </Button>
                 )}
                 
@@ -507,12 +572,12 @@ export function ManageAuction() {
         {/* Auction Results - Show only when auction is closed */}
         {auction.status === 'closed' && (
           <>
-            {/* Bidder Results Card */}
+            {/* All Bidders Results Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Auction Results - Bidder Summary</CardTitle>
+                <CardTitle>Auction Results - All Bidders</CardTitle>
                 <CardDescription>
-                  Summary of items won by each bidder and their spending
+                  Complete summary of all participants and their performance
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -521,37 +586,56 @@ export function ManageAuction() {
                     {bidderResults.map((bidder) => (
                       <div key={bidder.bidder_name} className="border rounded-lg p-4">
                         <div className="flex justify-between items-start mb-4">
-                          <h4 className="font-semibold text-lg">{bidder.bidder_name}</h4>
+                          <div className="flex items-center space-x-3">
+                            <h4 className="font-semibold text-lg">{bidder.bidder_name}</h4>
+                            {bidder.items.length === 0 && (
+                              <Badge variant="outline" className="text-gray-600">
+                                No Items Won
+                              </Badge>
+                            )}
+                            {bidder.items.length > 0 && (
+                              <Badge className="bg-green-100 text-green-800">
+                                {bidder.items.length} Item{bidder.items.length > 1 ? 's' : ''} Won
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-right">
                             <p className="text-sm text-gray-600">Total Spent: ₹{bidder.total_spent}</p>
                             <p className="text-sm text-gray-600">Budget Remaining: ₹{bidder.budget_remaining}</p>
                           </div>
                         </div>
                         
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Item Name</TableHead>
-                              <TableHead>Starting Bid</TableHead>
-                              <TableHead>Winning Amount</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {bidder.items.map((item, index) => (
-                              <TableRow key={index}>
-                                <TableCell>{item.item_name}</TableCell>
-                                <TableCell>₹{item.starting_bid}</TableCell>
-                                <TableCell>₹{item.winning_amount}</TableCell>
+                        {bidder.items.length > 0 ? (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Item Name</TableHead>
+                                <TableHead>Starting Bid</TableHead>
+                                <TableHead>Winning Amount</TableHead>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {bidder.items.map((item, index) => (
+                                <TableRow key={index}>
+                                  <TableCell>{item.item_name}</TableCell>
+                                  <TableCell>₹{item.starting_bid}</TableCell>
+                                  <TableCell>₹{item.winning_amount}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        ) : (
+                          <div className="text-center py-4 text-gray-500 bg-gray-50 rounded-lg">
+                            <p className="text-sm">This bidder did not win any items in this auction.</p>
+                            <p className="text-xs mt-1">Full budget of ₹{auction.max_budget_per_bidder} remains unused.</p>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 ) : (
                   <p className="text-gray-500 text-center py-8">
-                    No winning bids found for this auction.
+                    No bidders participated in this auction.
                   </p>
                 )}
               </CardContent>
