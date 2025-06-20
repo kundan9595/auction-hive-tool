@@ -9,16 +9,269 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      auction_results: {
+        Row: {
+          auction_id: string
+          created_at: string | null
+          id: string
+          item_id: string
+          quantity_sold: number | null
+          winner_name: string | null
+          winning_amount: number | null
+          winning_bid_id: string | null
+        }
+        Insert: {
+          auction_id: string
+          created_at?: string | null
+          id?: string
+          item_id: string
+          quantity_sold?: number | null
+          winner_name?: string | null
+          winning_amount?: number | null
+          winning_bid_id?: string | null
+        }
+        Update: {
+          auction_id?: string
+          created_at?: string | null
+          id?: string
+          item_id?: string
+          quantity_sold?: number | null
+          winner_name?: string | null
+          winning_amount?: number | null
+          winning_bid_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auction_results_auction_id_fkey"
+            columns: ["auction_id"]
+            isOneToOne: false
+            referencedRelation: "auctions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auction_results_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "auction_results_winning_bid_id_fkey"
+            columns: ["winning_bid_id"]
+            isOneToOne: false
+            referencedRelation: "bids"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      auctions: {
+        Row: {
+          admin_id: string
+          auction_type: Database["public"]["Enums"]["auction_type"]
+          closed_at: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          max_budget_per_bidder: number
+          name: string
+          slug: string
+          status: Database["public"]["Enums"]["auction_status"]
+          updated_at: string | null
+        }
+        Insert: {
+          admin_id: string
+          auction_type?: Database["public"]["Enums"]["auction_type"]
+          closed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          max_budget_per_bidder: number
+          name: string
+          slug: string
+          status?: Database["public"]["Enums"]["auction_status"]
+          updated_at?: string | null
+        }
+        Update: {
+          admin_id?: string
+          auction_type?: Database["public"]["Enums"]["auction_type"]
+          closed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          max_budget_per_bidder?: number
+          name?: string
+          slug?: string
+          status?: Database["public"]["Enums"]["auction_status"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auctions_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bids: {
+        Row: {
+          auction_id: string
+          bid_amount: number
+          bidder_email: string | null
+          bidder_name: string
+          created_at: string | null
+          id: string
+          item_id: string
+        }
+        Insert: {
+          auction_id: string
+          bid_amount: number
+          bidder_email?: string | null
+          bidder_name: string
+          created_at?: string | null
+          id?: string
+          item_id: string
+        }
+        Update: {
+          auction_id?: string
+          bid_amount?: number
+          bidder_email?: string | null
+          bidder_name?: string
+          created_at?: string | null
+          id?: string
+          item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bids_auction_id_fkey"
+            columns: ["auction_id"]
+            isOneToOne: false
+            referencedRelation: "auctions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bids_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      collections: {
+        Row: {
+          auction_id: string
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          sort_order: number | null
+        }
+        Insert: {
+          auction_id: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          sort_order?: number | null
+        }
+        Update: {
+          auction_id?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          sort_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collections_auction_id_fkey"
+            columns: ["auction_id"]
+            isOneToOne: false
+            referencedRelation: "auctions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      items: {
+        Row: {
+          collection_id: string
+          created_at: string | null
+          description: string | null
+          id: string
+          inventory: number
+          name: string
+          sort_order: number | null
+          starting_bid: number
+        }
+        Insert: {
+          collection_id: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          inventory?: number
+          name: string
+          sort_order?: number | null
+          starting_bid: number
+        }
+        Update: {
+          collection_id?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          inventory?: number
+          name?: string
+          sort_order?: number | null
+          starting_bid?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "items_collection_id_fkey"
+            columns: ["collection_id"]
+            isOneToOne: false
+            referencedRelation: "collections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string | null
+          email: string
+          full_name: string | null
+          id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          full_name?: string | null
+          id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      generate_auction_slug: {
+        Args: { auction_name: string }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      auction_status: "draft" | "active" | "closed"
+      auction_type: "closed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -133,6 +386,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      auction_status: ["draft", "active", "closed"],
+      auction_type: ["closed"],
+    },
   },
 } as const
