@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,12 +16,20 @@ interface Item {
   inventory: number;
 }
 
+interface BidData {
+  itemId: string;
+  quantity: number;
+  pricePerUnit: number;
+  totalBid: number;
+}
+
 interface QuantityBidFormProps {
   item: Item;
   maxBudget: number;
   currentBudgetUsed: number;
   onSubmitBid: (itemId: string, quantity: number, pricePerUnit: number, totalBid: number) => void;
   disabled?: boolean;
+  initialBid?: BidData;
 }
 
 export function QuantityBidForm({ 
@@ -29,23 +37,30 @@ export function QuantityBidForm({
   maxBudget, 
   currentBudgetUsed, 
   onSubmitBid, 
-  disabled = false 
+  disabled = false,
+  initialBid
 }: QuantityBidFormProps) {
-  const [quantity, setQuantity] = useState<string>('1');
-  const [pricePerUnit, setPricePerUnit] = useState<string>(item.starting_bid.toString());
+  const [quantity, setQuantity] = useState<string>(initialBid?.quantity.toString() || '');
+  const [pricePerUnit, setPricePerUnit] = useState<string>(
+    initialBid?.pricePerUnit.toString() || item.starting_bid.toString()
+  );
   
   const quantityNum = parseInt(quantity) || 0;
   const pricePerUnitNum = parseFloat(pricePerUnit) || 0;
   const totalBid = quantityNum * pricePerUnitNum;
-  const remainingBudget = maxBudget - currentBudgetUsed;
+  
+  // Calculate budget excluding current bid if it exists
+  const currentBidAmount = initialBid?.totalBid || 0;
+  const adjustedBudgetUsed = currentBudgetUsed - currentBidAmount;
+  const remainingBudget = maxBudget - adjustedBudgetUsed;
+  
   const canAfford = totalBid <= remainingBudget;
   const validQuantity = quantityNum > 0 && quantityNum <= item.inventory;
   const validPrice = pricePerUnitNum >= item.starting_bid;
-  const canSubmit = canAfford && validQuantity && validPrice && !disabled;
+  const canSubmit = canAfford && validQuantity && validPrice && !disabled && totalBid > 0;
 
   const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    // Allow empty string or valid numbers
     if (value === '' || /^\d+$/.test(value)) {
       setQuantity(value);
     }
@@ -53,7 +68,6 @@ export function QuantityBidForm({
 
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    // Allow empty string or valid decimal numbers
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setPricePerUnit(value);
     }
@@ -66,12 +80,31 @@ export function QuantityBidForm({
     }
   };
 
+  const handleRemoveBid = () => {
+    setQuantity('');
+    setPricePerUnit(item.starting_bid.toString());
+    onSubmitBid(item.id, 0, 0, 0);
+  };
+
+  // Update form when initialBid changes
+  useEffect(() => {
+    if (initialBid) {
+      setQuantity(initialBid.quantity.toString());
+      setPricePerUnit(initialBid.pricePerUnit.toString());
+    }
+  }, [initialBid]);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="w-5 h-5" />
           {item.name}
+          {initialBid && (
+            <Badge className="bg-green-100 text-green-800">
+              Bid Placed
+            </Badge>
+          )}
         </CardTitle>
         {item.description && (
           <p className="text-sm text-gray-600">{item.description}</p>
@@ -96,7 +129,7 @@ export function QuantityBidForm({
                 value={quantity}
                 onChange={handleQuantityChange}
                 disabled={disabled}
-                placeholder="1"
+                placeholder="0"
               />
               <p className="text-xs text-gray-500 mt-1">
                 Max: {item.inventory} units
@@ -119,36 +152,38 @@ export function QuantityBidForm({
           </div>
 
           {/* Bid Summary */}
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <Calculator className="w-4 h-4" />
-              <span className="font-medium">Bid Summary</span>
+          {(quantityNum > 0 || initialBid) && (
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <Calculator className="w-4 h-4" />
+                <span className="font-medium">Bid Summary</span>
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span>Quantity:</span>
+                  <span>{quantityNum || 0} units</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Price per unit:</span>
+                  <span>₹{pricePerUnitNum || 0}</span>
+                </div>
+                <div className="flex justify-between font-medium border-t pt-1">
+                  <span>Total bid:</span>
+                  <span>₹{totalBid || 0}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Remaining budget:</span>
+                  <span>₹{remainingBudget}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Budget after bid:</span>
+                  <span className={canAfford ? 'text-green-600' : 'text-red-600'}>
+                    ₹{remainingBudget - totalBid}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Quantity:</span>
-                <span>{quantityNum || 0} units</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Price per unit:</span>
-                <span>₹{pricePerUnitNum || 0}</span>
-              </div>
-              <div className="flex justify-between font-medium border-t pt-1">
-                <span>Total bid:</span>
-                <span>₹{totalBid || 0}</span>
-              </div>
-              <div className="flex justify-between text-gray-600">
-                <span>Remaining budget:</span>
-                <span>₹{remainingBudget}</span>
-              </div>
-              <div className="flex justify-between text-gray-600">
-                <span>Budget after bid:</span>
-                <span className={canAfford ? 'text-green-600' : 'text-red-600'}>
-                  ₹{remainingBudget - totalBid}
-                </span>
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* Validation Messages */}
           {!canAfford && totalBid > 0 && (
@@ -175,13 +210,28 @@ export function QuantityBidForm({
             </Alert>
           )}
 
-          <Button 
-            type="submit" 
-            className="w-full" 
-            disabled={!canSubmit}
-          >
-            {disabled ? 'Bidding Closed' : `Place Bid: ₹${totalBid || 0}`}
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              type="submit" 
+              className="flex-1" 
+              disabled={!canSubmit}
+            >
+              {disabled ? 'Bidding Closed' : 
+               initialBid ? `Update Bid: ₹${totalBid || 0}` : 
+               `Place Bid: ₹${totalBid || 0}`}
+            </Button>
+            
+            {initialBid && (
+              <Button 
+                type="button" 
+                variant="outline"
+                onClick={handleRemoveBid}
+                disabled={disabled}
+              >
+                Remove
+              </Button>
+            )}
+          </div>
         </form>
       </CardContent>
     </Card>
