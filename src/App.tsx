@@ -14,7 +14,7 @@ import { CreateAuction } from "./pages/CreateAuction";
 import { ManageAuction } from "./pages/ManageAuction";
 import { MonitorAuction } from "./pages/MonitorAuction";
 import { CollectionDetail } from "./pages/CollectionDetail";
-import { BidderForm } from "./pages/BidderForm";
+import BidderForm from "./pages/BidderForm";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
