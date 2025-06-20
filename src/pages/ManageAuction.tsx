@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2 } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2, MoreHorizontal } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface Collection {
@@ -739,14 +740,13 @@ export function ManageAuction() {
                 const collectionItemCount = items?.filter(i => i.collection_id === collection.id).length || 0;
                 
                 return (
-                  <Card
-                    key={collection.id}
-                    className="hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => navigate(`/auction/${slug}/collection/${collection.id}`)}
-                  >
+                  <Card key={collection.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start">
-                        <div className="flex-1">
+                        <div 
+                          className="flex-1 cursor-pointer"
+                          onClick={() => navigate(`/auction/${slug}/collection/${collection.id}`)}
+                        >
                           <h4 className="font-medium">{collection.name}</h4>
                           {collection.description && (
                             <p className="text-sm text-gray-600 mt-1">{collection.description}</p>
@@ -755,7 +755,102 @@ export function ManageAuction() {
                             {collectionItemCount} items
                           </p>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-gray-400" />
+                        
+                        <div className="flex items-center gap-1 ml-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => navigate(`/auction/${slug}/collection/${collection.id}`)}
+                          >
+                            <ArrowRight className="w-4 h-4" />
+                          </Button>
+
+                          <Dialog open={editingCollection?.id === collection.id} onOpenChange={(open) => setEditingCollection(open ? collection : null)}>
+                            <DialogTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant="ghost"
+                                disabled={auction.status === 'closed'}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Edit Collection</DialogTitle>
+                                <DialogDescription>
+                                  Update collection details.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  const formData = new FormData(e.currentTarget);
+                                  editCollectionMutation.mutate({
+                                    id: collection.id,
+                                    name: formData.get('name') as string,
+                                    description: formData.get('description') as string,
+                                  });
+                                }}
+                                className="space-y-4"
+                              >
+                                <div>
+                                  <Label htmlFor="edit-collection-name">Collection Name</Label>
+                                  <Input 
+                                    id="edit-collection-name" 
+                                    name="name" 
+                                    defaultValue={collection.name}
+                                    required 
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="edit-collection-description">Description</Label>
+                                  <Textarea 
+                                    id="edit-collection-description" 
+                                    name="description" 
+                                    defaultValue={collection.description || ''}
+                                    rows={2}
+                                  />
+                                </div>
+                                <DialogFooter>
+                                  <Button type="submit" disabled={editCollectionMutation.isPending}>
+                                    {editCollectionMutation.isPending ? 'Updating...' : 'Update Collection'}
+                                  </Button>
+                                </DialogFooter>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
+
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant="ghost"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                disabled={auction.status === 'closed'}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Collection</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently delete "{collection.name}" and all its items. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteCollectionMutation.mutate(collection.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete Collection
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
