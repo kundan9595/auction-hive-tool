@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -151,16 +150,16 @@ export default function BidderForm() {
       }
 
       // First, delete any existing bids for this bidder in this auction
+      // Use only bidder_name since that's what the unique constraint uses
       const { error: deleteError } = await supabase
         .from('bids')
         .delete()
         .eq('auction_id', auction!.id)
-        .eq('bidder_name', bidderName)
-        .eq('bidder_email', bidderEmail);
+        .eq('bidder_name', bidderName);
 
       if (deleteError) {
         console.error('Error deleting existing bids:', deleteError);
-        // Continue anyway, the insert might still work
+        throw deleteError; // Don't continue if delete fails
       }
 
       // Then insert the new bids
