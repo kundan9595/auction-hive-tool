@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, AlertCircle, DollarSign } from 'lucide-react';
 
 interface Auction {
   id: string;
@@ -133,8 +132,8 @@ export function BidderForm() {
     },
     onSuccess: () => {
       toast({
-        title: 'Bids Submitted!',
-        description: 'Your bids have been submitted successfully.',
+        title: 'Bids Submitted Successfully!',
+        description: 'Your bids have been recorded. Good luck!',
       });
       setCurrentStep((collectionsWithItems?.length || 0) + 2);
     },
@@ -150,6 +149,7 @@ export function BidderForm() {
 
   const totalBidAmount = Object.values(bids).reduce((sum, bid) => sum + (bid || 0), 0);
   const remainingBudget = (auction?.max_budget_per_bidder || 0) - totalBidAmount;
+  const isBudgetExceeded = totalBidAmount > (auction?.max_budget_per_bidder || 0);
 
   const updateBid = (itemId: string, amount: number) => {
     setBids(prev => ({ ...prev, [itemId]: amount }));
@@ -201,6 +201,16 @@ export function BidderForm() {
       return;
     }
 
+    // Check budget before moving to review step
+    if (currentStep === (collectionsWithItems?.length || 0) && isBudgetExceeded) {
+      toast({
+        title: 'Budget Exceeded',
+        description: `Your total bid amount (₹${totalBidAmount.toFixed(2)}) exceeds your budget limit (₹${auction?.max_budget_per_bidder}). Please adjust your bids.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!validateCurrentStep()) {
       toast({
         title: 'Invalid Bids',
@@ -218,6 +228,15 @@ export function BidderForm() {
       toast({
         title: 'Missing Information',
         description: 'Please provide your name.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (isBudgetExceeded) {
+      toast({
+        title: 'Budget Exceeded',
+        description: `Your total bid amount (₹${totalBidAmount.toFixed(2)}) exceeds your budget limit (₹${auction.max_budget_per_bidder}). Please go back and adjust your bids.`,
         variant: 'destructive',
       });
       return;
@@ -294,7 +313,12 @@ export function BidderForm() {
         <div className="mb-8">
           <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
             <span>Step {currentStep + 1} of {totalSteps}</span>
-            <span>Budget Used: ₹{totalBidAmount} / ₹{auction.max_budget_per_bidder}</span>
+            <div className="flex items-center space-x-2">
+              <DollarSign className="w-4 h-4" />
+              <span className={isBudgetExceeded ? 'text-red-600 font-bold' : ''}>
+                Budget Used: ₹{totalBidAmount.toFixed(2)} / ₹{auction.max_budget_per_bidder}
+              </span>
+            </div>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
@@ -304,6 +328,14 @@ export function BidderForm() {
               }}
             ></div>
           </div>
+          {isBudgetExceeded && (
+            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center space-x-2 text-red-700 text-sm">
+                <AlertCircle className="w-4 h-4" />
+                <span>⚠️ You have exceeded your budget limit! Please reduce your bids to continue.</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -380,6 +412,7 @@ export function BidderForm() {
                             id={`bid-${item.id}`}
                             type="number"
                             step="0.01"
+                            min="0"
                             value={bids[item.id] || ''}
                             onChange={(e) => {
                               const value = parseFloat(e.target.value) || 0;
@@ -405,13 +438,19 @@ export function BidderForm() {
                   ))}
                 </div>
 
-                <div className="bg-blue-50 p-4 rounded-lg">
+                <div className={`p-4 rounded-lg ${isBudgetExceeded ? 'bg-red-50 border border-red-200' : 'bg-blue-50'}`}>
                   <div className="flex justify-between text-sm">
                     <span>Remaining Budget:</span>
-                    <span className={remainingBudget < 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                    <span className={remainingBudget < 0 ? 'text-red-600 font-bold' : 'text-green-600 font-medium'}>
                       ₹{remainingBudget.toFixed(2)}
                     </span>
                   </div>
+                  {isBudgetExceeded && (
+                    <div className="mt-2 text-xs text-red-600">
+                      <AlertCircle className="w-3 h-3 inline mr-1" />
+                      Budget exceeded! Reduce your bids to continue.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -452,21 +491,33 @@ export function BidderForm() {
                     );
                   })}
 
-                  <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className={`p-4 rounded-lg ${isBudgetExceeded ? 'bg-red-50 border border-red-200' : 'bg-blue-50'}`}>
                     <div className="flex justify-between text-lg font-medium">
                       <span>Total Bid Amount:</span>
-                      <span>₹{totalBidAmount.toFixed(2)}</span>
+                      <span className={isBudgetExceeded ? 'text-red-600' : ''}>₹{totalBidAmount.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-600 mt-1">
-                      <span>Remaining Budget:</span>
-                      <span>₹{remainingBudget.toFixed(2)}</span>
+                      <span>Budget Limit:</span>
+                      <span>₹{auction.max_budget_per_bidder}</span>
                     </div>
+                    <div className="flex justify-between text-sm mt-1">
+                      <span>Remaining Budget:</span>
+                      <span className={remainingBudget < 0 ? 'text-red-600 font-bold' : 'text-green-600'}>
+                        ₹{remainingBudget.toFixed(2)}
+                      </span>
+                    </div>
+                    {isBudgetExceeded && (
+                      <div className="mt-2 text-sm text-red-600 flex items-center space-x-1">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>You must reduce your bids to submit.</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <Button
                   onClick={submitBids}
-                  disabled={submitBidsMutation.isPending || Object.values(bids).every(bid => bid === 0)}
+                  disabled={submitBidsMutation.isPending || Object.values(bids).every(bid => bid === 0) || isBudgetExceeded}
                   className="w-full"
                   size="lg"
                 >
