@@ -315,7 +315,17 @@ export function ManageAuction() {
         if (resultsError) throw resultsError;
         console.log(`Deleted ${deletedResults?.length || 0} auction results`);
 
-        // 2. Delete ALL bids for this auction with enhanced approach
+        // 2. Delete bidder registrations
+        console.log('Deleting bidder registrations...');
+        const { data: deletedRegistrations, error: registrationsError } = await supabase
+          .from('bidder_registrations')
+          .delete()
+          .eq('auction_id', auction.id)
+          .select();
+        if (registrationsError) throw registrationsError;
+        console.log(`Deleted ${deletedRegistrations?.length || 0} bidder registrations`);
+
+        // 3. Delete ALL bids for this auction with enhanced approach
         console.log('Deleting all bids with enhanced deletion strategy...');
         const { data: deletedBids, error: bidsError } = await supabase
           .from('bids')
@@ -330,7 +340,7 @@ export function ManageAuction() {
         
         console.log(`Successfully deleted ${deletedBids?.length || 0} bids`);
 
-        // 3. Final verification - ensure no bids remain
+        // 4. Final verification - ensure no bids remain
         const { data: remainingBids, error: finalCheckError } = await supabase
           .from('bids')
           .select('id, bidder_name')
@@ -343,11 +353,11 @@ export function ManageAuction() {
         }
         console.log('Verified: All bids successfully deleted');
 
-        // 4. Generate new slug for fresh start
+        // 5. Generate new slug for fresh start
         const newSlug = generateNewSlug();
         console.log('Generated new slug:', newSlug);
 
-        // 5. Reset auction to draft state with new slug
+        // 6. Reset auction to draft state with new slug
         console.log('Resetting auction to draft state...');
         const { error: updateError } = await supabase
           .from('auctions')
@@ -376,6 +386,7 @@ export function ManageAuction() {
       queryClient.invalidateQueries({ queryKey: ['all-bidders'] });
       queryClient.invalidateQueries({ queryKey: ['bids'] });
       queryClient.invalidateQueries({ queryKey: ['bidder-status'] });
+      queryClient.invalidateQueries({ queryKey: ['bidder-registrations'] });
       
       // Navigate to the new URL
       navigate(`/auction/${newSlug}/manage`, { replace: true });
