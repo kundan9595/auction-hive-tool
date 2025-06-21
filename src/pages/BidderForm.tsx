@@ -58,6 +58,7 @@ export default function BidderForm() {
   const [bidderEmail, setBidderEmail] = useState('');
   const [isRegistered, setIsRegistered] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [registrationError, setRegistrationError] = useState('');
   
   // Stepper state
   const [currentStep, setCurrentStep] = useState(0);
@@ -201,6 +202,51 @@ export default function BidderForm() {
     };
   }, [auction?.id, slug, queryClient]);
 
+  // Register bidder mutation
+  const registerBidderMutation = useMutation({
+    mutationFn: async () => {
+      if (!auction?.id) throw new Error('Auction not found');
+      
+      const { error } = await supabase
+        .from('bidder_registrations')
+        .insert({
+          auction_id: auction.id,
+          bidder_name: bidderName,
+          bidder_email: bidderEmail,
+          status: 'bidding'
+        });
+
+      if (error) {
+        console.error('Registration error:', error);
+        if (error.code === '23505') { // Unique constraint violation
+          if (error.message.includes('unique_bidder_name_per_auction')) {
+            throw new Error('This name is already taken for this auction. Please choose a different name.');
+          } else if (error.message.includes('unique_bidder_email_per_auction')) {
+            throw new Error('This email is already registered for this auction. Please use a different email.');
+          }
+        }
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      setIsRegistered(true);
+      setCurrentStep(1);
+      setRegistrationError('');
+      toast({
+        title: 'Registration Successful',
+        description: 'You can now proceed to place bids.',
+      });
+    },
+    onError: (error) => {
+      setRegistrationError(error.message);
+      toast({
+        title: "Registration Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Submit mutation with status check
   const submitAllBidsMutation = useMutation({
     mutationFn: async () => {
@@ -258,6 +304,16 @@ export default function BidderForm() {
         throw error;
       }
 
+      // Update bidder status to complete
+      await supabase
+        .from('bidder_registrations')
+        .update({ 
+          status: 'complete',
+          completed_at: new Date().toISOString()
+        })
+        .eq('auction_id', auction!.id)
+        .eq('bidder_name', bidderName);
+
       console.log('Bids submitted successfully');
     },
     onSuccess: () => {
@@ -308,6 +364,7 @@ export default function BidderForm() {
     setIsRegistered(false);
     setBids({});
     setCurrentStep(0);
+    setRegistrationError('');
     
     // Clear localStorage
     if (slug) {
@@ -334,12 +391,7 @@ export default function BidderForm() {
   const handleRegistration = (e: React.FormEvent) => {
     e.preventDefault();
     if (bidderName.trim() && bidderEmail.trim()) {
-      setIsRegistered(true);
-      setCurrentStep(1);
-      toast({
-        title: 'Registration Successful',
-        description: 'You can now proceed to place bids.',
-      });
+      registerBidderMutation.mutate();
     }
   };
 
@@ -550,6 +602,11 @@ export default function BidderForm() {
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleRegistration}>
+              {registrationError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{registrationError}</AlertDescription>
+                </Alert>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="name">Your Name</Label>
                 <Input
@@ -558,6 +615,7 @@ export default function BidderForm() {
                   onChange={(e) => setBidderName(e.target.value)}
                   placeholder="Enter your full name"
                   className="w-full"
+                  disabled={isRegistered || registerBidderMutation.isPending}
                 />
               </div>
               <div className="space-y-2">
@@ -569,15 +627,18 @@ export default function BidderForm() {
                   onChange={(e) => setBidderEmail(e.target.value)}
                   placeholder="Enter your email"
                   className="w-full"
+                  disabled={isRegistered || registerBidderMutation.isPending}
                 />
               </div>
-              <Button
-                type="submit"
-                className="w-full auction-gradient text-white"
-                disabled={!bidderName || !bidderEmail}
-              >
-                Start Bidding
-              </Button>
+              {!isRegistered && (
+                <Button
+                  type="submit"
+                  className="w-full auction-gradient text-white"
+                  disabled={!bidderName || !bidderEmail || registerBidderMutation.isPending}
+                >
+                  {registerBidderMutation.isPending ? 'Registering...' : 'Start Bidding'}
+                </Button>
+              )}
             </form>
           </CardContent>
         </Card>

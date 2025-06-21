@@ -126,6 +126,36 @@ export type Database = {
           },
         ]
       }
+      bidder_registrations: {
+        Row: {
+          auction_id: string
+          bidder_email: string
+          bidder_name: string
+          completed_at: string | null
+          id: string
+          registered_at: string
+          status: string
+        }
+        Insert: {
+          auction_id: string
+          bidder_email: string
+          bidder_name: string
+          completed_at?: string | null
+          id?: string
+          registered_at?: string
+          status?: string
+        }
+        Update: {
+          auction_id?: string
+          bidder_email?: string
+          bidder_name?: string
+          completed_at?: string | null
+          id?: string
+          registered_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       bids: {
         Row: {
           auction_id: string

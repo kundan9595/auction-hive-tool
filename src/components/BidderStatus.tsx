@@ -10,10 +10,13 @@ import { Users, Activity } from 'lucide-react';
 interface BidderInfo {
   bidder_name: string;
   bidder_email?: string;
+  status: 'bidding' | 'complete';
   total_bids: number;
   total_bid_amount: number;
   last_bid_time: string;
   items_bid_on: number;
+  registered_at: string;
+  completed_at?: string;
 }
 
 interface BidderStatusProps {
@@ -24,8 +27,25 @@ interface BidderStatusProps {
 export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
   const [bidders, setBidders] = useState<BidderInfo[]>([]);
 
-  // Fetch bidder information
-  const { data: bidderData, refetch } = useQuery({
+  // Fetch bidder registrations and bids
+  const { data: registrationData, refetch: refetchRegistrations } = useQuery({
+    queryKey: ['bidder-registrations', auctionId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('bidder_registrations')
+        .select('*')
+        .eq('auction_id', auctionId)
+        .order('registered_at', { ascending: false });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!auctionId && auctionStatus === 'active',
+    refetchInterval: auctionStatus === 'active' ? 5000 : false,
+  });
+
+  // Fetch bidder information from bids
+  const { data: bidderData, refetch: refetchBids } = useQuery({
     queryKey: ['bidder-status', auctionId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,30 +57,32 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
       return data;
     },
     enabled: !!auctionId && auctionStatus === 'active',
-    refetchInterval: auctionStatus === 'active' ? 5000 : false, // Refresh every 5 seconds when active
+    refetchInterval: auctionStatus === 'active' ? 5000 : false,
   });
 
   useEffect(() => {
-    if (bidderData) {
-      // Group bids by bidder and calculate stats
-      const bidderMap = new Map<string, BidderInfo>();
+    if (registrationData && bidderData) {
+      // Create map of bid stats by bidder
+      const bidStatsMap = new Map<string, {
+        total_bids: number;
+        total_bid_amount: number;
+        items_bid_on: number;
+        last_bid_time: string;
+      }>();
 
       bidderData.forEach(bid => {
-        const existing = bidderMap.get(bid.bidder_name);
+        const existing = bidStatsMap.get(bid.bidder_name);
         
         if (existing) {
           existing.total_bids += 1;
           existing.total_bid_amount += Number(bid.bid_amount);
           existing.items_bid_on = new Set([...existing.items_bid_on.toString().split(','), bid.item_id]).size;
           
-          // Update last bid time if this bid is more recent
           if (new Date(bid.created_at) > new Date(existing.last_bid_time)) {
             existing.last_bid_time = bid.created_at;
           }
         } else {
-          bidderMap.set(bid.bidder_name, {
-            bidder_name: bid.bidder_name,
-            bidder_email: bid.bidder_email,
+          bidStatsMap.set(bid.bidder_name, {
             total_bids: 1,
             total_bid_amount: Number(bid.bid_amount),
             last_bid_time: bid.created_at,
@@ -69,18 +91,51 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
         }
       });
 
-      setBidders(Array.from(bidderMap.values()).sort((a, b) => 
-        new Date(b.last_bid_time).getTime() - new Date(a.last_bid_time).getTime()
-      ));
-    }
-  }, [bidderData]);
+      // Combine registration data with bid stats
+      const combinedData = registrationData.map(registration => {
+        const bidStats = bidStatsMap.get(registration.bidder_name) || {
+          total_bids: 0,
+          total_bid_amount: 0,
+          items_bid_on: 0,
+          last_bid_time: registration.registered_at,
+        };
 
-  // Set up real-time subscription for active auctions
+        return {
+          bidder_name: registration.bidder_name,
+          bidder_email: registration.bidder_email,
+          status: registration.status as 'bidding' | 'complete',
+          registered_at: registration.registered_at,
+          completed_at: registration.completed_at,
+          ...bidStats,
+        };
+      });
+
+      setBidders(combinedData);
+    }
+  }, [registrationData, bidderData]);
+
+  // Set up real-time subscriptions for active auctions
   useEffect(() => {
     if (auctionStatus !== 'active') return;
 
-    const channel = supabase
-      .channel('bidder-updates')
+    const registrationsChannel = supabase
+      .channel('bidder-registrations-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bidder_registrations',
+          filter: `auction_id=eq.${auctionId}`,
+        },
+        () => {
+          refetchRegistrations();
+        }
+      )
+      .subscribe();
+
+    const bidsChannel = supabase
+      .channel('bidder-bids-updates')
       .on(
         'postgres_changes',
         {
@@ -90,16 +145,16 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
           filter: `auction_id=eq.${auctionId}`,
         },
         () => {
-          // Refetch data when bids change
-          refetch();
+          refetchBids();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(registrationsChannel);
+      supabase.removeChannel(bidsChannel);
     };
-  }, [auctionId, auctionStatus, refetch]);
+  }, [auctionId, auctionStatus, refetchRegistrations, refetchBids]);
 
   if (auctionStatus === 'closed') {
     return null; // Hide when auction is closed
@@ -131,7 +186,9 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
     return `${diffInDays}d ago`;
   };
 
-  const getActivityStatus = (lastBidTime: string) => {
+  const getActivityStatus = (lastBidTime: string, status: string) => {
+    if (status === 'complete') return 'complete';
+    
     const now = new Date();
     const bidTime = new Date(lastBidTime);
     const diffInMinutes = Math.floor((now.getTime() - bidTime.getTime()) / (1000 * 60));
@@ -154,7 +211,7 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
           <div className="text-center py-8">
             <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600">No bidders have joined yet.</p>
-            <p className="text-sm text-gray-500 mt-1">Waiting for first bid...</p>
+            <p className="text-sm text-gray-500 mt-1">Waiting for first registration...</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -171,7 +228,7 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
               </TableHeader>
               <TableBody>
                 {bidders.map((bidder) => {
-                  const activityStatus = getActivityStatus(bidder.last_bid_time);
+                  const activityStatus = getActivityStatus(bidder.last_bid_time, bidder.status);
                   
                   return (
                     <TableRow key={bidder.bidder_name}>
@@ -187,13 +244,16 @@ export function BidderStatus({ auctionId, auctionStatus }: BidderStatusProps) {
                         <Badge 
                           variant="outline" 
                           className={
-                            activityStatus === 'active' ? 'bg-green-100 text-green-800' :
+                            activityStatus === 'complete' ? 'bg-green-100 text-green-800' :
+                            activityStatus === 'active' ? 'bg-blue-100 text-blue-800' :
                             activityStatus === 'recent' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-gray-100 text-gray-600'
                           }
                         >
-                          {activityStatus === 'active' ? 'Active' :
-                           activityStatus === 'recent' ? 'Recent' : 'Idle'}
+                          {activityStatus === 'complete' ? 'Complete' :
+                           activityStatus === 'active' ? 'Active' :
+                           activityStatus === 'recent' ? 'Recent' :
+                           'Bidding'}
                         </Badge>
                       </TableCell>
                       <TableCell>
