@@ -307,25 +307,42 @@ export function ManageAuction() {
       try {
         // 1. Delete auction results first (due to foreign key constraints)
         console.log('Deleting auction results...');
-        const { error: resultsError } = await supabase
+        const { data: deletedResults, error: resultsError } = await supabase
           .from('auction_results')
           .delete()
-          .eq('auction_id', auction.id);
+          .eq('auction_id', auction.id)
+          .select();
         if (resultsError) throw resultsError;
+        console.log(`Deleted ${deletedResults?.length || 0} auction results`);
 
         // 2. Delete ALL bids for this auction (this removes all bidder data)
         console.log('Deleting all bids and bidder data...');
-        const { error: bidsError } = await supabase
+        const { data: deletedBids, error: bidsError } = await supabase
           .from('bids')
           .delete()
-          .eq('auction_id', auction.id);
+          .eq('auction_id', auction.id)
+          .select();
         if (bidsError) throw bidsError;
+        console.log(`Deleted ${deletedBids?.length || 0} bids`);
 
-        // 3. Generate new slug for fresh start
+        // 3. Verify deletion by checking if any bids remain
+        const { data: remainingBids, error: checkError } = await supabase
+          .from('bids')
+          .select('id')
+          .eq('auction_id', auction.id);
+        if (checkError) throw checkError;
+        
+        if (remainingBids && remainingBids.length > 0) {
+          console.error(`Warning: ${remainingBids.length} bids still remain after deletion`);
+          throw new Error(`Failed to delete all bids. ${remainingBids.length} bids still remain.`);
+        }
+        console.log('Verified: No bids remain for this auction');
+
+        // 4. Generate new slug for fresh start
         const newSlug = generateNewSlug();
         console.log('Generated new slug:', newSlug);
 
-        // 4. Reset auction to draft state with new slug
+        // 5. Reset auction to draft state with new slug
         console.log('Resetting auction to draft state...');
         const { error: updateError } = await supabase
           .from('auctions')
