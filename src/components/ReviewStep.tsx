@@ -1,9 +1,9 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle, Edit, Trash2, Package } from 'lucide-react';
+import { Edit, Trash2, Package } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface BidData {
   itemId: string;
@@ -34,7 +34,6 @@ interface ReviewStepProps {
   maxBudget: number;
   onEditBid: (itemId: string) => void;
   onRemoveBid: (itemId: string) => void;
-  onSubmitAllBids: () => void;
   isSubmitting: boolean;
 }
 
@@ -44,14 +43,10 @@ export function ReviewStep({
   collections, 
   maxBudget, 
   onEditBid, 
-  onRemoveBid, 
-  onSubmitAllBids,
+  onRemoveBid,
   isSubmitting 
 }: ReviewStepProps) {
   const bidArray = Object.values(bids);
-  const totalBidAmount = bidArray.reduce((sum, bid) => sum + bid.totalBid, 0);
-  const remainingBudget = maxBudget - totalBidAmount;
-
   const groupedBids = collections.map(collection => {
     const collectionItems = items.filter(item => item.collection_id === collection.id);
     const collectionBids = collectionItems
@@ -66,103 +61,82 @@ export function ReviewStep({
 
   if (bidArray.length === 0) {
     return (
-      <Card>
-        <CardContent className="text-center py-12">
-          <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No Bids Yet</h3>
-          <p className="text-gray-600">Go back to previous steps to place your bids.</p>
-        </CardContent>
-      </Card>
+      <div className="gradient-border">
+        <div className="gradient-border-content">
+          <CardContent className="text-center py-12">
+            <Package className="w-16 h-16 text-purple-200 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">No Bids Yet</h3>
+            <p className="text-gray-600">Go back to previous steps to place your bids.</p>
+          </CardContent>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Budget Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5" />
-            Bid Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <p className="text-sm text-gray-600">Total Bids</p>
-              <p className="text-2xl font-bold">{bidArray.length}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Total Amount</p>
-              <p className="text-2xl font-bold text-blue-600">₹{totalBidAmount}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Remaining Budget</p>
-              <p className={`text-2xl font-bold ${remainingBudget >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                ₹{remainingBudget}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Bids by Collection */}
       {groupedBids.map(({ collection, bids: collectionBids }) => (
-        <Card key={collection.id}>
-          <CardHeader>
-            <CardTitle className="text-lg">{collection.name}</CardTitle>
-            <Badge variant="outline" className="w-fit">
-              {collectionBids.length} {collectionBids.length === 1 ? 'bid' : 'bids'}
-            </Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {collectionBids.map(({ item, bid }) => (
-                <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex-1">
-                    <h4 className="font-medium">{item.name}</h4>
-                    <p className="text-sm text-gray-600">
-                      {bid.quantity} units × ₹{bid.pricePerUnit} = ₹{bid.totalBid}
-                    </p>
+        <div key={collection.id} className="gradient-border card-hover">
+          <div className="gradient-border-content">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="w-5 h-5 text-purple-600" />
+                  {collection.name}
+                </CardTitle>
+                <Badge className="bg-gradient-to-r from-purple-50 to-blue-50 text-purple-700 border-purple-200">
+                  {collectionBids.length} {collectionBids.length === 1 ? 'bid' : 'bids'}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {collectionBids.map(({ item, bid }) => (
+                  <div
+                    key={item.id}
+                    className="p-4 rounded-lg bg-gradient-to-r from-gray-50 to-purple-50 border border-purple-100"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-900">{item.name}</h4>
+                        <div className="flex items-center gap-4 mt-1">
+                          <span className="text-sm text-gray-600">
+                            {bid.quantity} units × ₹{bid.pricePerUnit.toLocaleString()}
+                          </span>
+                          <span className="text-sm font-medium text-purple-700">
+                            = ₹{bid.totalBid.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onEditBid(item.id)}
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        >
+                          <Edit className="w-4 h-4" />
+                          <span className="sr-only">Edit</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRemoveBid(item.id)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span className="sr-only">Remove</span>
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEditBid(item.id)}
-                      className="text-blue-600 hover:text-blue-700"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onRemoveBid(item.id)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                ))}
+              </div>
+            </CardContent>
+          </div>
+        </div>
       ))}
-
-      <Separator />
-
-      {/* Submit Button */}
-      <div className="flex justify-center">
-        <Button
-          onClick={onSubmitAllBids}
-          disabled={isSubmitting || remainingBudget < 0}
-          size="lg"
-          className="px-8"
-        >
-          {isSubmitting ? 'Submitting...' : `Submit All Bids (₹${totalBidAmount})`}
-        </Button>
-      </div>
     </div>
   );
 }

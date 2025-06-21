@@ -180,15 +180,17 @@ export function ManageAuction() {
         refund_amount: result.refund_amount || 0,
       }));
       
-      const totalSpent = bidderWins.reduce((sum, result) => sum + (result.winning_amount || 0), 0);
+      // Calculate using original bid amounts
+      const totalOriginalBids = bidderWins.reduce((sum, result) => 
+        sum + ((result.original_bid_per_unit || 0) * (result.quantity_won || 1)), 0);
       const totalRefund = bidderWins.reduce((sum, result) => sum + (result.refund_amount || 0), 0);
       
       return {
         bidder_name: bidderName,
         items,
-        total_spent: totalSpent,
+        total_spent: totalOriginalBids,
         total_refund: totalRefund,
-        budget_remaining: auction!.max_budget_per_bidder - totalSpent + totalRefund,
+        budget_remaining: auction!.max_budget_per_bidder - totalOriginalBids + totalRefund,
       };
     })
   : [];
@@ -216,9 +218,9 @@ export function ManageAuction() {
     }).filter(Boolean) as RemainingItem[]
   : [];
 
-  // Toggle auction status
+  // Update the toggle status mutation
   const toggleStatusMutation = useMutation({
-    mutationFn: async (newStatus: 'draft' | 'active' | 'closed') => {
+    mutationFn: async (newStatus: 'active' | 'closed') => {
       const updateData: any = { 
         status: newStatus,
         updated_at: new Date().toISOString(),
@@ -226,25 +228,38 @@ export function ManageAuction() {
       
       if (newStatus === 'closed') {
         updateData.closed_at = new Date().toISOString();
-      }
+        
+        const { error } = await supabase
+          .from('auctions')
+          .update(updateData)
+          .eq('id', auction!.id);
 
-      const { error } = await supabase
-        .from('auctions')
-        .update(updateData)
-        .eq('id', auction!.id);
-
-      if (error) throw error;
-
-      // If closing auction, generate results using the new function
-      if (newStatus === 'closed') {
+        if (error) throw error;
+        
+        // Generate results when closing
         await generateAuctionResults();
+      } else {
+        const { error } = await supabase
+          .from('auctions')
+          .update(updateData)
+          .eq('id', auction!.id);
+
+        if (error) throw error;
       }
+
+      return newStatus;
     },
-    onSuccess: () => {
+    onSuccess: (newStatus) => {
       queryClient.invalidateQueries({ queryKey: ['auction', slug] });
+      
+      const statusMessages = {
+        active: 'Auction has been started.',
+        closed: 'Auction has been closed.',
+      };
+      
       toast({
-        title: 'Status Updated',
-        description: `Auction has been ${auction?.status === 'active' ? 'paused' : auction?.status === 'draft' ? 'started' : 'closed'}.`,
+        title: 'Auction Status Updated',
+        description: statusMessages[newStatus],
       });
     },
   });
@@ -275,79 +290,86 @@ export function ManageAuction() {
     }
   };
 
-  // Reset auction mutation - completely wipe everything
+  // Add this helper function near the top of the component
+  const generateNewSlug = () => {
+    const timestamp = Date.now().toString(36);
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    return `${timestamp}-${randomStr}`;
+  };
+
+  // Update the reset mutation
   const resetAuctionMutation = useMutation({
     mutationFn: async () => {
-      if (!auction?.id) return;
+      if (!auction?.id) throw new Error('No auction ID found');
 
       console.log('Starting complete auction reset...');
 
-      // Delete all auction results first
-      const { error: resultsError } = await supabase
-        .from('auction_results')
-        .delete()
-        .eq('auction_id', auction.id);
+      // Delete all bids and related data in the correct order
+      try {
+        // 1. Delete auction results first (due to foreign key constraints)
+        const { error: resultsError } = await supabase
+          .from('auction_results')
+          .delete()
+          .eq('auction_id', auction.id);
+        if (resultsError) throw resultsError;
+        console.log('Deleted auction results');
 
-      if (resultsError) {
-        console.error('Error deleting auction results:', resultsError);
-        throw resultsError;
+        // 2. Delete all bids
+        const { error: bidsError } = await supabase
+          .from('bids')
+          .delete()
+          .eq('auction_id', auction.id);
+        if (bidsError) throw bidsError;
+        console.log('Deleted all bids');
+
+        // 3. Generate new slug
+        const newSlug = generateNewSlug();
+        console.log('Generated new slug:', newSlug);
+
+        // 4. Reset auction to draft state
+        const { error: updateError } = await supabase
+          .from('auctions')
+          .update({
+            status: 'draft',
+            slug: newSlug,
+            updated_at: new Date().toISOString(),
+            closed_at: null // Clear the closed timestamp
+          })
+          .eq('id', auction.id);
+        if (updateError) throw updateError;
+        console.log('Reset auction to draft state');
+
+        return newSlug;
+      } catch (error) {
+        console.error('Error during reset:', error);
+        throw error;
       }
-
-      // Delete all bids
-      const { error: bidsError } = await supabase
-        .from('bids')
-        .delete()
-        .eq('auction_id', auction.id);
-
-      if (bidsError) {
-        console.error('Error deleting bids:', bidsError);
-        throw bidsError;
-      }
-
-      // Generate a new slug for the auction to create a fresh bidding link
-      const newSlug = `${auction.slug}-${Date.now()}`;
-
-      // Reset auction to draft status with new slug and clear closed_at
-      const { error: auctionError } = await supabase
-        .from('auctions')
-        .update({ 
-          status: 'draft',
-          slug: newSlug,
-          closed_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', auction.id);
-
-      if (auctionError) {
-        console.error('Error updating auction:', auctionError);
-        throw auctionError;
-      }
-
-      console.log('Auction reset completed successfully with new slug:', newSlug);
-      
-      // Navigate to the new slug
-      navigate(`/auction/${newSlug}/manage`, { replace: true });
     },
-    onSuccess: () => {
-      // Clear all cached data
+    onSuccess: (newSlug) => {
+      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: ['auction'] });
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['auction-results'] });
       queryClient.invalidateQueries({ queryKey: ['all-bidders'] });
-      queryClient.invalidateQueries({ queryKey: ['bids'] });
+      queryClient.invalidateQueries({ queryKey: ['bids'] }); // Also invalidate bids cache
+      
+      // Navigate to the new URL
+      navigate(`/auction/${newSlug}/manage`, { replace: true });
       
       toast({
-        title: 'Auction Reset Successfully',
-        description: 'Auction has been completely reset with a new bidding link. All previous data has been cleared.',
+        title: 'Complete Reset Successful',
+        description: 'All bids have been deleted and a new bidding link has been generated.',
       });
     },
     onError: (error) => {
-      console.error('Error resetting auction:', error);
+      console.error('Reset failed:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to reset auction. Please try again.',
+        title: 'Reset Failed',
+        description: 'Failed to reset the auction. Please try again.',
         variant: 'destructive',
       });
-    },
+    }
   });
 
   // Edit auction mutation
@@ -382,29 +404,97 @@ export function ManageAuction() {
   // Delete auction mutation
   const deleteAuctionMutation = useMutation({
     mutationFn: async () => {
-      // Delete in order: auction_results, bids, items, collections, auction
-      if (auction?.id) {
-        await supabase.from('auction_results').delete().eq('auction_id', auction.id);
-        await supabase.from('bids').delete().eq('auction_id', auction.id);
+      if (!auction?.id) {
+        throw new Error('No auction ID found');
+      }
+      
+      console.log('Starting auction deletion process...');
+      
+      try {
+        // 1. First get all collections and their items
+        const { data: collections, error: collectionsError } = await supabase
+          .from('collections')
+          .select(`
+            id,
+            items (
+              id
+            )
+          `)
+          .eq('auction_id', auction.id);
+          
+        if (collectionsError) throw collectionsError;
         
+        // 2. Delete auction results first (due to foreign key constraints)
+        console.log('Deleting auction results...');
+        const { error: resultsError } = await supabase
+          .from('auction_results')
+          .delete()
+          .eq('auction_id', auction.id);
+          
+        if (resultsError) throw resultsError;
+        
+        // 3. Delete all bids
+        console.log('Deleting all bids...');
+        const { error: bidsError } = await supabase
+          .from('bids')
+          .delete()
+          .eq('auction_id', auction.id);
+          
+        if (bidsError) throw bidsError;
+        
+        // 4. Delete all items from all collections
         if (collections?.length) {
-          const collectionIds = collections.map(c => c.id);
-          await supabase.from('items').delete().in('collection_id', collectionIds);
+          const itemIds = collections.flatMap(c => c.items?.map(i => i.id) || []);
+          if (itemIds.length) {
+            console.log(`Deleting ${itemIds.length} items...`);
+            const { error: itemsError } = await supabase
+              .from('items')
+              .delete()
+              .in('id', itemIds);
+              
+            if (itemsError) throw itemsError;
+          }
         }
         
-        await supabase.from('collections').delete().eq('auction_id', auction.id);
+        // 5. Delete all collections
+        console.log('Deleting collections...');
+        const { error: collectionsDeleteError } = await supabase
+          .from('collections')
+          .delete()
+          .eq('auction_id', auction.id);
+          
+        if (collectionsDeleteError) throw collectionsDeleteError;
         
-        const { error } = await supabase.from('auctions').delete().eq('id', auction.id);
-        if (error) throw error;
+        // 6. Finally delete the auction itself
+        console.log('Deleting auction...');
+        const { error: auctionError } = await supabase
+          .from('auctions')
+          .delete()
+          .eq('id', auction.id);
+          
+        if (auctionError) throw auctionError;
+        
+        console.log('Auction deletion completed successfully');
+      } catch (error) {
+        console.error('Error during auction deletion:', error);
+        throw error;
       }
     },
     onSuccess: () => {
       toast({
         title: 'Auction Deleted',
-        description: 'Auction and all related data have been deleted.',
+        description: 'Auction and all associated data have been deleted successfully.',
       });
       navigate('/dashboard');
     },
+    onError: (error) => {
+      console.error('Auction deletion failed:', error);
+      toast({
+        title: 'Deletion Failed',
+        description: 'Failed to delete the auction. Please try again.',
+        variant: 'destructive',
+      });
+    }
   });
 
   // Edit collection mutation
@@ -433,24 +523,83 @@ export function ManageAuction() {
   // Delete collection mutation
   const deleteCollectionMutation = useMutation({
     mutationFn: async (collectionId: string) => {
-      // Delete items first, then collection
-      await supabase.from('items').delete().eq('collection_id', collectionId);
+      console.log('Starting collection deletion process...');
       
-      const { error } = await supabase
-        .from('collections')
-        .delete()
-        .eq('id', collectionId);
+      try {
+        // 1. First check if collection exists and get its items
+        const { data: items, error: itemsError } = await supabase
+          .from('items')
+          .select('id')
+          .eq('collection_id', collectionId);
+        
+        if (itemsError) throw itemsError;
+        
+        // 2. Delete all bids associated with the items in this collection
+        if (items?.length) {
+          const itemIds = items.map(item => item.id);
+          console.log(`Deleting bids for ${itemIds.length} items...`);
+          
+          const { error: bidsError } = await supabase
+            .from('bids')
+            .delete()
+            .in('item_id', itemIds);
+            
+          if (bidsError) throw bidsError;
+        }
+        
+        // 3. Delete all auction results for these items
+        if (items?.length) {
+          console.log('Deleting auction results for items...');
+          const { error: resultsError } = await supabase
+            .from('auction_results')
+            .delete()
+            .in('item_id', items.map(item => item.id));
+            
+          if (resultsError) throw resultsError;
+        }
+        
+        // 4. Delete all items in the collection
+        console.log('Deleting items...');
+        const { error: itemsDeleteError } = await supabase
+          .from('items')
+          .delete()
+          .eq('collection_id', collectionId);
+          
+        if (itemsDeleteError) throw itemsDeleteError;
+        
+        // 5. Finally delete the collection itself
+        console.log('Deleting collection...');
+        const { error: collectionError } = await supabase
+          .from('collections')
+          .delete()
+          .eq('id', collectionId);
 
-      if (error) throw error;
+        if (collectionError) throw collectionError;
+        
+        console.log('Collection deletion completed successfully');
+      } catch (error) {
+        console.error('Error during collection deletion:', error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['collections', auction?.id] });
       queryClient.invalidateQueries({ queryKey: ['items', auction?.id] });
+      queryClient.invalidateQueries({ queryKey: ['bids'] });
+      queryClient.invalidateQueries({ queryKey: ['auction-results'] });
       toast({
         title: 'Collection Deleted',
-        description: 'Collection and all its items have been deleted.',
+        description: 'Collection and all associated data have been deleted successfully.',
       });
     },
+    onError: (error) => {
+      console.error('Collection deletion failed:', error);
+      toast({
+        title: 'Deletion Failed',
+        description: 'Failed to delete the collection. Please try again.',
+        variant: 'destructive',
+      });
+    }
   });
 
   // Add collection
@@ -481,12 +630,37 @@ export function ManageAuction() {
   });
 
   const copyBidLink = () => {
-    const bidUrl = `${window.location.origin}/auction/${slug}/bid`;
-    navigator.clipboard.writeText(bidUrl);
-    toast({
-      title: 'Link Copied!',
-      description: 'Bidding link has been copied to clipboard.',
-    });
+    try {
+      const bidUrl = `${window.location.origin}/auction/${slug}/bid`;
+      console.log('Copying URL:', bidUrl); // Debug log
+      
+      // Create a temporary input element
+      const tempInput = document.createElement('input');
+      tempInput.style.position = 'fixed';
+      tempInput.style.opacity = '0';
+      tempInput.style.top = '-1000px';
+      tempInput.value = bidUrl;
+      document.body.appendChild(tempInput);
+      
+      // Select and copy the text
+      tempInput.select();
+      document.execCommand('copy');
+      
+      // Remove the temporary element
+      document.body.removeChild(tempInput);
+      
+      toast({
+        title: 'Link Copied!',
+        description: 'Bidding link has been copied to clipboard.',
+      });
+    } catch (error) {
+      console.error('Failed to copy link:', error);
+      toast({
+        title: 'Failed to Copy Link',
+        description: 'Please try again or copy the URL manually.',
+        variant: 'destructive',
+      });
+    }
   };
 
   if (auctionLoading) {
@@ -654,15 +828,6 @@ export function ManageAuction() {
                 {auction.status === 'active' && (
                   <>
                     <Button
-                      onClick={() => toggleStatusMutation.mutate('draft')}
-                      variant="outline"
-                      className="flex items-center space-x-2"
-                    >
-                      <Pause className="w-4 h-4" />
-                      <span>Pause Auction</span>
-                    </Button>
-                    
-                    <Button
                       onClick={() => toggleStatusMutation.mutate('closed')}
                       variant="destructive"
                       className="flex items-center space-x-2"
@@ -670,55 +835,65 @@ export function ManageAuction() {
                       <Square className="w-4 h-4" />
                       <span>Close Auction</span>
                     </Button>
+
+                    <Button
+                      onClick={copyBidLink}
+                      variant="outline"
+                      className="flex items-center space-x-2"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Copy Bid Link</span>
+                    </Button>
                   </>
                 )}
                 
                 {auction.status === 'closed' && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
-                        disabled={resetAuctionMutation.isPending}
-                      >
-                        <RefreshCw className={`w-4 h-4 ${resetAuctionMutation.isPending ? 'animate-spin' : ''}`} />
-                        <span>Complete Reset & Fresh Start</span>
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Complete Auction Reset</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will completely reset the auction and create a fresh start:
-                          <br />• All bids will be permanently deleted
-                          <br />• All auction results will be cleared
-                          <br />• A new bidding link will be generated
-                          <br />• Auction status will return to draft
-                          <br /><br />
-                          This action cannot be undone and will make it like a brand new auction.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => resetAuctionMutation.mutate()}
-                          className="bg-blue-600 hover:bg-blue-700"
+                  <>
+                    <Button
+                      onClick={() => navigate(`/auction/${auction.slug}/monitor`)}
+                      className="flex items-center space-x-2"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      <span>View Results</span>
+                    </Button>
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                          disabled={resetAuctionMutation.isPending}
                         >
-                          Reset Everything
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                          <RefreshCw className={`w-4 h-4 ${resetAuctionMutation.isPending ? 'animate-spin' : ''}`} />
+                          <span>Complete Reset & Fresh Start</span>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Complete Auction Reset</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will completely reset the auction and create a fresh start:
+                            <br />• All bids will be permanently deleted
+                            <br />• All auction results will be cleared
+                            <br />• A new bidding link will be generated
+                            <br />• Auction status will return to draft
+                            <br /><br />
+                            This action cannot be undone and will make it like a brand new auction.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => resetAuctionMutation.mutate()}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            Reset Everything
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
                 )}
-                
-                <Button
-                  onClick={copyBidLink}
-                  variant="outline"
-                  className="flex items-center space-x-2"
-                >
-                  <Share2 className="w-4 h-4" />
-                  <span>Copy Bid Link</span>
-                </Button>
               </div>
             </div>
           </CardContent>
@@ -937,9 +1112,13 @@ export function ManageAuction() {
                             )}
                           </div>
                           <div className="text-right">
-                            <p className="text-sm text-gray-600">Total Spent: ₹{bidder.total_spent.toFixed(2)}</p>
-                            <p className="text-sm text-green-600">Total Refund: ₹{bidder.total_refund.toFixed(2)}</p>
-                            <p className="text-sm text-gray-600">Budget Remaining: ₹{bidder.budget_remaining.toFixed(2)}</p>
+                            <div className="space-y-1">
+                              <p className="text-sm text-gray-600">Original Bid Total: ₹{bidder.total_spent.toFixed(2)}</p>
+                              <p className="text-sm text-green-600">Refund Amount: ₹{bidder.total_refund.toFixed(2)}</p>
+                              <div className="border-t border-gray-200 pt-1 mt-1">
+                                <p className="text-sm font-medium">Budget Remaining: ₹{bidder.budget_remaining.toFixed(2)}</p>
+                              </div>
+                            </div>
                           </div>
                         </div>
                         
@@ -950,8 +1129,9 @@ export function ManageAuction() {
                                 <TableHead>Item Name</TableHead>
                                 <TableHead>Qty Won</TableHead>
                                 <TableHead>Original Bid/Unit</TableHead>
-                                <TableHead>Paid/Unit (Avg)</TableHead>
-                                <TableHead>Total Paid</TableHead>
+                                <TableHead>Average Price/Unit</TableHead>
+                                <TableHead>Total Original Bid</TableHead>
+                                <TableHead>Total After Average</TableHead>
                                 <TableHead>Refund</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -962,6 +1142,7 @@ export function ManageAuction() {
                                   <TableCell>{item.quantity_won}</TableCell>
                                   <TableCell>₹{item.original_bid_per_unit.toFixed(2)}</TableCell>
                                   <TableCell>₹{item.price_per_unit_paid.toFixed(2)}</TableCell>
+                                  <TableCell>₹{(item.original_bid_per_unit * item.quantity_won).toFixed(2)}</TableCell>
                                   <TableCell>₹{item.winning_amount.toFixed(2)}</TableCell>
                                   <TableCell className="text-green-600">₹{item.refund_amount.toFixed(2)}</TableCell>
                                 </TableRow>

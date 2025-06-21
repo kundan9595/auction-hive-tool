@@ -8,17 +8,20 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { User, Wallet, RotateCcw, RefreshCw } from 'lucide-react';
+import { User, Wallet, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, Send, AlertCircle, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stepper } from '@/components/Stepper';
 import { CollectionStep } from '@/components/CollectionStep';
 import { ReviewStep } from '@/components/ReviewStep';
+import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 
 interface Auction {
   id: string;
   name: string;
   description: string | null;
-  status: 'draft' | 'active' | 'closed';
+  status: 'draft' | 'active' | 'closed' | 'paused';
   max_budget_per_bidder: number;
 }
 
@@ -54,10 +57,12 @@ export default function BidderForm() {
   const [bidderName, setBidderName] = useState('');
   const [bidderEmail, setBidderEmail] = useState('');
   const [isRegistered, setIsRegistered] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   
   // Stepper state
   const [currentStep, setCurrentStep] = useState(0);
   const [bids, setBids] = useState<Record<string, BidData>>({});
+  const [hasValidationErrors, setHasValidationErrors] = useState(false);
 
   // Load saved data from localStorage
   useEffect(() => {
@@ -102,7 +107,13 @@ export default function BidderForm() {
         .eq('slug', slug)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No rows returned - auction not found
+          return null;
+        }
+        throw error;
+      }
       return data as Auction;
     },
   });
@@ -141,9 +152,78 @@ export default function BidderForm() {
     enabled: !!auction?.id && !!collections,
   });
 
-  // Submit all bids mutation
+  const currentBudgetUsed = Object.values(bids).reduce((sum, bid) => sum + bid.totalBid, 0);
+  const isBudgetExceeded = !!auction && currentBudgetUsed > auction.max_budget_per_bidder;
+
+  // Subscribe to auction status changes
+  useEffect(() => {
+    if (!auction?.id) return;
+
+    const channel = supabase
+      .channel(`auction-${auction.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'auctions',
+          filter: `id=eq.${auction.id}`,
+        },
+        (payload) => {
+          const updatedAuction = payload.new as Auction;
+          queryClient.setQueryData(['auction-public', slug], updatedAuction);
+          
+          // Show toast when auction status changes
+          if (updatedAuction.status !== auction.status) {
+            switch (updatedAuction.status) {
+              case 'paused':
+                toast({
+                  title: "Auction Paused",
+                  description: "The auction has been temporarily paused. Please wait for it to resume.",
+                  variant: "destructive",
+                });
+                break;
+              case 'closed':
+                toast({
+                  title: "Auction Closed",
+                  description: "This auction has ended and is no longer accepting bids.",
+                  variant: "destructive",
+                });
+                break;
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [auction?.id, slug, queryClient]);
+
+  // Submit mutation with status check
   const submitAllBidsMutation = useMutation({
     mutationFn: async () => {
+      // Check auction status before submitting
+      const { data: currentAuction } = await supabase
+        .from('auctions')
+        .select('status')
+        .eq('id', auction.id)
+        .single();
+
+      if (!currentAuction) {
+        throw new Error('Auction not found');
+      }
+
+      if (currentAuction.status === 'closed') {
+        setIsSubmitted(true); // This will show our custom closed message
+        throw new Error('AUCTION_CLOSED');
+      }
+
+      if (currentAuction.status !== 'active') {
+        throw new Error(`Cannot submit bids: Auction is ${currentAuction.status}`);
+      }
+
       const bidArray = Object.values(bids).filter(bid => bid.totalBid > 0);
       
       if (bidArray.length === 0) {
@@ -181,7 +261,6 @@ export default function BidderForm() {
       console.log('Bids submitted successfully');
     },
     onSuccess: () => {
-      // Clear saved data
       if (slug) {
         localStorage.removeItem(`auction-${slug}-bidder-data`);
       }
@@ -189,16 +268,17 @@ export default function BidderForm() {
         title: 'Bids Submitted Successfully!',
         description: `${Object.values(bids).filter(b => b.totalBid > 0).length} bids have been submitted.`,
       });
-      // Reset form
-      setBids({});
-      setCurrentStep(0);
+      setIsSubmitted(true);
     },
     onError: (error) => {
-      console.error('Error submitting bids:', error);
+      if (error.message === 'AUCTION_CLOSED') {
+        // Don't show error toast for closed auction
+        return;
+      }
       toast({
-        title: 'Error',
-        description: `Failed to submit bids: ${error.message}. Please try again.`,
-        variant: 'destructive',
+        title: "Failed to submit bids",
+        description: error.message,
+        variant: "destructive",
       });
     },
   });
@@ -239,9 +319,6 @@ export default function BidderForm() {
       description: 'Your session has been completely reset. Please register again to start bidding.',
     });
   };
-
-  // Calculate budget usage
-  const currentBudgetUsed = Object.values(bids).reduce((sum, bid) => sum + bid.totalBid, 0);
 
   // Create steps
   const steps = [
@@ -307,44 +384,155 @@ export default function BidderForm() {
     handleBidUpdate(itemId, null);
   };
 
-  const canGoNext = () => {
-    if (currentStep === 0) return isRegistered;
-    return true; // Allow navigation between collection steps even without bids
+  const canGoPrevious = () => {
+    if (currentStep === 0) return false;
+    if (isBudgetExceeded) return false;
+    if (hasValidationErrors) return false;
+    return true;
   };
 
-  if (auctionLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading auction...</p>
-        </div>
-      </div>
-    );
-  }
+  const canGoNext = () => {
+    if (currentStep === 0) return isRegistered;
+    if (isBudgetExceeded) return false;
+    if (hasValidationErrors) return false;
+    return true;
+  };
 
-  if (!auction) {
+  // Thank you page
+  if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full">
           <CardContent className="text-center py-12">
-            <h2 className="text-xl font-semibold mb-2">Auction Not Found</h2>
-            <p className="text-gray-600">The auction you're looking for doesn't exist.</p>
+            {auction.status === 'closed' ? (
+              <div>
+                <AlertCircle className="w-16 h-16 mx-auto mb-4 text-yellow-500" />
+                <h2 className="text-2xl font-semibold mb-2">Auction Closed</h2>
+                <p className="text-gray-600 mb-6">
+                  Sorry, this auction has already been closed. Your bids have not been submitted.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => window.location.href = '/'}
+                  className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+                >
+                  Return Home
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-6 celebration-bounce">
+                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
+                    <svg
+                      className="w-10 h-10 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <h2 className="text-2xl font-semibold mb-2 auction-text-gradient">Bids Submitted!</h2>
+                <div className="mb-6">
+                  <Badge className="bg-green-100 text-green-800 text-sm">Complete</Badge>
+                </div>
+                <p className="text-gray-600 mb-2">
+                  Your bids have been successfully submitted.
+                </p>
+                <p className="text-sm text-gray-500 mb-6">
+                  We'll notify you about the auction results.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                  className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+                >
+                  Submit Another Bid
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
     );
   }
 
+  // Loading state
+  if (!auction || !collections || !items) {
+    // Check if auction doesn't exist (404)
+    if (!auctionLoading && !auction) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="text-center py-12">
+              <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-yellow-500" />
+              <h2 className="text-2xl font-semibold mb-2">
+                Auction Not Found
+              </h2>
+              <p className="text-gray-600 mb-6">
+                This auction link has expired or been replaced with a new one. Please contact the auction organizer for the updated link.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => window.location.href = '/'}
+                className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+              >
+                Return Home
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    // Show loading state
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="py-12">
+            <div className="space-y-4 animate-pulse">
+              <div className="w-3/4 h-8 bg-gray-200 rounded-full mx-auto" />
+              <div className="w-1/2 h-4 bg-gray-200 rounded-full mx-auto" />
+              <div className="flex justify-center gap-4 mt-8">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="w-3 h-3 rounded-full bg-gray-200" />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show message if auction is not active
   if (auction.status !== 'active') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
           <CardContent className="text-center py-12">
-            <h2 className="text-xl font-semibold mb-2">Auction Not Active</h2>
-            <p className="text-gray-600">
-              This auction is currently {auction.status}. Bidding is only available when the auction is active.
+            <AlertCircle className="w-16 h-16 mx-auto mb-4 text-yellow-500" />
+            <h2 className="text-2xl font-semibold mb-2">
+              {auction.status === 'paused' ? 'Auction Paused' : 'Auction Closed'}
+            </h2>
+            <p className="text-gray-600 mb-6">
+              {auction.status === 'paused'
+                ? "This auction has been temporarily paused. Please check back later."
+                : "This auction has ended and is no longer accepting bids."}
             </p>
+            <Button
+              variant="outline"
+              onClick={() => window.location.reload()}
+              className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+            >
+              Refresh Page
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -352,44 +540,43 @@ export default function BidderForm() {
   }
 
   const renderStepContent = () => {
+    // Registration Step
     if (currentStep === 0) {
-      // Registration Step
       return (
-        <Card className="max-w-md mx-auto">
+        <Card className="w-full max-w-2xl mx-auto">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              Register to Bid
-            </CardTitle>
-            <CardDescription>
-              Enter your details to participate in the auction
-            </CardDescription>
+            <CardTitle className="text-2xl auction-text-gradient">Welcome to {auction.name}</CardTitle>
+            <CardDescription>Please register to start bidding</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleRegistration} className="space-y-4">
-              <div>
-                <Label htmlFor="bidder-name">Full Name</Label>
+            <form className="space-y-4" onSubmit={handleRegistration}>
+              <div className="space-y-2">
+                <Label htmlFor="name">Your Name</Label>
                 <Input
-                  id="bidder-name"
+                  id="name"
                   value={bidderName}
                   onChange={(e) => setBidderName(e.target.value)}
-                  required
                   placeholder="Enter your full name"
+                  className="w-full"
                 />
               </div>
-              <div>
-                <Label htmlFor="bidder-email">Email Address</Label>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email Address</Label>
                 <Input
-                  id="bidder-email"
+                  id="email"
                   type="email"
                   value={bidderEmail}
                   onChange={(e) => setBidderEmail(e.target.value)}
-                  required
                   placeholder="Enter your email"
+                  className="w-full"
                 />
               </div>
-              <Button type="submit" className="w-full">
-                Continue to Bidding
+              <Button
+                type="submit"
+                className="w-full auction-gradient text-white"
+                disabled={!bidderName || !bidderEmail}
+              >
+                Start Bidding
               </Button>
             </form>
           </CardContent>
@@ -397,19 +584,26 @@ export default function BidderForm() {
       );
     }
 
+    // Review Step
     if (currentStep === steps.length - 1) {
-      // Review Step
       return (
-        <ReviewStep
-          bids={bids}
-          items={items || []}
-          collections={collections || []}
-          maxBudget={auction.max_budget_per_bidder}
-          onEditBid={handleEditBid}
-          onRemoveBid={handleRemoveBid}
-          onSubmitAllBids={() => submitAllBidsMutation.mutate()}
-          isSubmitting={submitAllBidsMutation.isPending}
-        />
+        <Card className="w-full max-w-2xl mx-auto">
+          <CardHeader>
+            <CardTitle className="text-2xl auction-text-gradient">Review Your Bids</CardTitle>
+            <CardDescription>Please review your bids before final submission</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ReviewStep
+              bids={bids}
+              items={items}
+              collections={collections}
+              maxBudget={auction.max_budget_per_bidder}
+              onEditBid={handleEditBid}
+              onRemoveBid={handleRemoveBid}
+              isSubmitting={submitAllBidsMutation.isPending}
+            />
+          </CardContent>
+        </Card>
       );
     }
 
@@ -428,117 +622,115 @@ export default function BidderForm() {
         currentBudgetUsed={currentBudgetUsed}
         bids={bids}
         onBidUpdate={handleBidUpdate}
+        onValidationChange={setHasValidationErrors}
       />
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Auction Header */}
-        <Card className="mb-8">
-          <CardHeader>
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <CardTitle className="text-2xl">{auction.name}</CardTitle>
-                <CardDescription>
-                  {auction.description || 'Welcome to this auction'}
-                </CardDescription>
-                <div className="flex gap-2 mt-2">
-                  <Badge className="bg-green-100 text-green-800">Active</Badge>
-                  <Badge variant="outline">Max Budget: ₹{auction.max_budget_per_bidder}</Badge>
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 p-4 md:p-8">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Budget Summary */}
+        {isRegistered && (
+          <Card className="gradient-border">
+            <div className="gradient-border-content p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <User className="w-5 h-5 text-purple-600" />
+                    <span className="font-medium">{bidderName}</span>
+                  </div>
+                  <Separator orientation="vertical" className="h-6" />
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-5 h-5 text-blue-600" />
+                    <span>Budget: ₹{auction.max_budget_per_bidder.toLocaleString()}</span>
+                  </div>
                 </div>
-              </div>
-              
-              {/* Reset/Restart Actions */}
-              <div className="flex gap-2">
-                {isRegistered && Object.keys(bids).length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResetBids}
-                    className="flex items-center gap-2"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    Reset Bids
-                  </Button>
-                )}
-                
-                {isRegistered && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRestartSession}
-                    className="flex items-center gap-2 text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    Restart Session
-                  </Button>
-                )}
+                <div className="flex-1 md:max-w-[200px]">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Used: ₹{currentBudgetUsed.toLocaleString()}</span>
+                    <span className={isBudgetExceeded ? 'text-red-600' : 'text-green-600'}>
+                      {((currentBudgetUsed / auction.max_budget_per_bidder) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={(currentBudgetUsed / auction.max_budget_per_bidder) * 100}
+                    className={cn(
+                      "h-2 transition-all",
+                      isBudgetExceeded ? "bg-red-100 [&>div]:bg-red-500" : "bg-blue-100 [&>div]:bg-blue-500"
+                    )}
+                  />
+                </div>
               </div>
             </div>
-          </CardHeader>
-        </Card>
-
-        {/* Budget Summary (when registered) */}
-        {isRegistered && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wallet className="w-5 h-5" />
-                Budget Overview
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600">Bidder</p>
-                  <p className="font-medium">{bidderName}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Total Budget</p>
-                  <p className="font-medium">₹{auction.max_budget_per_bidder}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Budget Used</p>
-                  <p className="font-medium text-blue-600">₹{currentBudgetUsed}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Remaining Budget</p>
-                  <p className="font-medium text-green-600">
-                    ₹{auction.max_budget_per_bidder - currentBudgetUsed}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
           </Card>
         )}
 
-        {/* Info Alert for Reset Actions */}
-        {isRegistered && (
-          <Alert className="mb-6">
-            <AlertDescription>
-              <strong>Need to start over?</strong> Use "Reset Bids" to clear only your current bids, 
-              or "Restart Session" to completely reset and re-register.
-            </AlertDescription>
-          </Alert>
-        )}
+        {/* Main Content */}
+        <div className="space-y-6">
+          {/* Stepper */}
+          <div className="flex justify-center">
+            <nav className="flex space-x-2">
+              {steps.map((step, index) => (
+                <div
+                  key={`step-${index}`}
+                  className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all",
+                    currentStep === index
+                      ? "auction-gradient text-white shadow-lg scale-110"
+                      : index < currentStep
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-gray-100 text-gray-400"
+                  )}
+                >
+                  {index + 1}
+                </div>
+              ))}
+            </nav>
+          </div>
 
-        {/* Stepper */}
-        <Stepper
-          steps={steps}
-          currentStep={currentStep}
-          onStepChange={setCurrentStep}
-          canGoNext={canGoNext()}
-          canGoPrevious={currentStep > 0}
-          onNext={handleNext}
-          onPrevious={handlePrevious}
-          showNavigation={isRegistered}
-        />
-
-        {/* Step Content */}
-        <div className="mt-8">
+          {/* Step Content */}
           {renderStepContent()}
+
+          {/* Navigation */}
+          {isRegistered && (
+            <div className="flex justify-between pt-6">
+              <Button
+                onClick={handlePrevious}
+                disabled={!canGoPrevious() || hasValidationErrors}
+                variant="outline"
+                className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              {currentStep < steps.length - 1 ? (
+                <Button
+                  onClick={handleNext}
+                  disabled={!canGoNext() || hasValidationErrors}
+                  className="auction-gradient text-white shadow-md hover:shadow-lg"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => submitAllBidsMutation.mutate()}
+                  disabled={hasValidationErrors || isBudgetExceeded || submitAllBidsMutation.isPending}
+                  className="auction-gradient text-white shadow-md hover:shadow-lg"
+                >
+                  {submitAllBidsMutation.isPending ? (
+                    <span className="animate-pulse">Submitting...</span>
+                  ) : (
+                    <>
+                      Submit Bids
+                      <Send className="w-4 h-4 ml-2" />
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

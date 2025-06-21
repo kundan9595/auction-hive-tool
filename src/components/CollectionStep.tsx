@@ -1,8 +1,8 @@
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Package, Calculator } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { QuantityBidForm } from './QuantityBidForm';
+import { useState, useEffect } from 'react';
 
 interface Collection {
   id: string;
@@ -34,6 +34,7 @@ interface CollectionStepProps {
   currentBudgetUsed: number;
   bids: Record<string, BidData>;
   onBidUpdate: (itemId: string, bidData: BidData | null) => void;
+  onValidationChange?: (hasErrors: boolean) => void;
 }
 
 export function CollectionStep({ 
@@ -42,19 +43,36 @@ export function CollectionStep({
   maxBudget, 
   currentBudgetUsed, 
   bids,
-  onBidUpdate 
+  onBidUpdate,
+  onValidationChange
 }: CollectionStepProps) {
+  const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
+
   const handleBidSubmit = (itemId: string, quantity: number, pricePerUnit: number, totalBid: number) => {
     onBidUpdate(itemId, { itemId, quantity, pricePerUnit, totalBid });
   };
+
+  const handleValidationChange = (itemId: string, hasError: boolean) => {
+    setValidationErrors(prev => {
+      const newErrors = new Set(prev);
+      if (hasError) {
+        newErrors.add(itemId);
+      } else {
+        newErrors.delete(itemId);
+      }
+      return newErrors;
+    });
+  };
+
+  // Notify parent of validation status changes
+  useEffect(() => {
+    onValidationChange?.(validationErrors.size > 0);
+  }, [validationErrors, onValidationChange]);
 
   // Calculate step-wise summary
   const stepBids = items
     .map(item => bids[item.id])
     .filter(bid => bid && bid.totalBid > 0);
-  
-  const stepTotal = stepBids.reduce((sum, bid) => sum + bid.totalBid, 0);
-  const remainingBudget = maxBudget - currentBudgetUsed;
 
   return (
     <div className="space-y-6">
@@ -77,39 +95,14 @@ export function CollectionStep({
                 {stepBids.length} {stepBids.length === 1 ? 'bid' : 'bids'} placed
               </Badge>
             )}
+            {validationErrors.size > 0 && (
+              <Badge variant="destructive">
+                {validationErrors.size} {validationErrors.size === 1 ? 'error' : 'errors'}
+              </Badge>
+            )}
           </div>
         </CardHeader>
       </Card>
-
-      {/* Step Summary */}
-      {stepBids.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calculator className="w-5 h-5" />
-              Step Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-gray-600">Bids in this step</p>
-                <p className="text-xl font-bold">{stepBids.length}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Step total</p>
-                <p className="text-xl font-bold text-blue-600">₹{stepTotal}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Remaining budget</p>
-                <p className={`text-xl font-bold ${remainingBudget >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ₹{remainingBudget}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Items */}
       <div className="grid gap-6">
@@ -120,6 +113,7 @@ export function CollectionStep({
             maxBudget={maxBudget}
             currentBudgetUsed={currentBudgetUsed}
             onSubmitBid={handleBidSubmit}
+            onValidationChange={handleValidationChange}
             initialBid={bids[item.id]}
           />
         ))}
