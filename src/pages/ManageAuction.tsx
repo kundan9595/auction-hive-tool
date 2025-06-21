@@ -297,12 +297,12 @@ export function ManageAuction() {
     return `${timestamp}-${randomStr}`;
   };
 
-  // Update the reset mutation with better error handling and RLS-aware deletion
+  // Updated reset mutation with improved bid deletion handling
   const resetAuctionMutation = useMutation({
     mutationFn: async () => {
       if (!auction?.id) throw new Error('No auction ID found');
 
-      console.log('Starting complete auction reset with bidder cleanup...');
+      console.log('Starting complete auction reset with enhanced bid deletion...');
 
       try {
         // 1. Delete auction results first (due to foreign key constraints)
@@ -315,47 +315,22 @@ export function ManageAuction() {
         if (resultsError) throw resultsError;
         console.log(`Deleted ${deletedResults?.length || 0} auction results`);
 
-        // 2. Get all bids for this auction first to check what we're dealing with
-        console.log('Checking existing bids...');
-        const { data: existingBids, error: checkBidsError } = await supabase
+        // 2. Delete ALL bids for this auction with enhanced approach
+        console.log('Deleting all bids with enhanced deletion strategy...');
+        const { data: deletedBids, error: bidsError } = await supabase
           .from('bids')
-          .select('id, bidder_name, item_id')
-          .eq('auction_id', auction.id);
-        if (checkBidsError) throw checkBidsError;
-        console.log(`Found ${existingBids?.length || 0} bids to delete:`, existingBids);
-
-        // 3. Delete ALL bids for this auction using a more direct approach
-        if (existingBids && existingBids.length > 0) {
-          console.log('Deleting bids by ID...');
-          const bidIds = existingBids.map(bid => bid.id);
-          
-          // Try deleting by IDs instead of auction_id to avoid potential RLS issues
-          const { data: deletedBids, error: bidsError } = await supabase
-            .from('bids')
-            .delete()
-            .in('id', bidIds)
-            .select();
-          
-          if (bidsError) {
-            console.error('Error deleting bids by ID:', bidsError);
-            // Fallback: try deleting by auction_id
-            console.log('Trying fallback deletion by auction_id...');
-            const { data: fallbackDeleted, error: fallbackError } = await supabase
-              .from('bids')
-              .delete()
-              .eq('auction_id', auction.id)
-              .select();
-            
-            if (fallbackError) throw fallbackError;
-            console.log(`Fallback deletion: ${fallbackDeleted?.length || 0} bids deleted`);
-          } else {
-            console.log(`Successfully deleted ${deletedBids?.length || 0} bids by ID`);
-          }
-        } else {
-          console.log('No bids found to delete');
+          .delete()
+          .eq('auction_id', auction.id)
+          .select();
+        
+        if (bidsError) {
+          console.error('Error deleting bids:', bidsError);
+          throw new Error(`Failed to delete bids: ${bidsError.message}`);
         }
+        
+        console.log(`Successfully deleted ${deletedBids?.length || 0} bids`);
 
-        // 4. Final verification - check if any bids still remain
+        // 3. Final verification - ensure no bids remain
         const { data: remainingBids, error: finalCheckError } = await supabase
           .from('bids')
           .select('id, bidder_name')
@@ -363,16 +338,16 @@ export function ManageAuction() {
         if (finalCheckError) throw finalCheckError;
         
         if (remainingBids && remainingBids.length > 0) {
-          console.error(`Critical: ${remainingBids.length} bids still remain after deletion attempts:`, remainingBids);
-          throw new Error(`Failed to delete all bids. ${remainingBids.length} bids still remain. This may be due to database constraints or permissions.`);
+          console.error(`Critical: ${remainingBids.length} bids still remain:`, remainingBids);
+          throw new Error(`Failed to delete all bids. ${remainingBids.length} bids still remain. Please check database permissions.`);
         }
-        console.log('Verified: No bids remain for this auction');
+        console.log('Verified: All bids successfully deleted');
 
-        // 5. Generate new slug for fresh start
+        // 4. Generate new slug for fresh start
         const newSlug = generateNewSlug();
         console.log('Generated new slug:', newSlug);
 
-        // 6. Reset auction to draft state with new slug
+        // 5. Reset auction to draft state with new slug
         console.log('Resetting auction to draft state...');
         const { error: updateError } = await supabase
           .from('auctions')
@@ -385,7 +360,7 @@ export function ManageAuction() {
           .eq('id', auction.id);
         if (updateError) throw updateError;
 
-        console.log('Complete auction reset successful - all bidders and data cleared');
+        console.log('Complete auction reset successful - all data cleared');
         return newSlug;
       } catch (error) {
         console.error('Error during complete reset:', error);
