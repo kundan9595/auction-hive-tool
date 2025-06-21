@@ -302,31 +302,31 @@ export function ManageAuction() {
     mutationFn: async () => {
       if (!auction?.id) throw new Error('No auction ID found');
 
-      console.log('Starting complete auction reset...');
+      console.log('Starting complete auction reset with bidder cleanup...');
 
-      // Delete all bids and related data in the correct order
       try {
         // 1. Delete auction results first (due to foreign key constraints)
+        console.log('Deleting auction results...');
         const { error: resultsError } = await supabase
           .from('auction_results')
           .delete()
           .eq('auction_id', auction.id);
         if (resultsError) throw resultsError;
-        console.log('Deleted auction results');
 
-        // 2. Delete all bids
+        // 2. Delete ALL bids for this auction (this removes all bidder data)
+        console.log('Deleting all bids and bidder data...');
         const { error: bidsError } = await supabase
           .from('bids')
           .delete()
           .eq('auction_id', auction.id);
         if (bidsError) throw bidsError;
-        console.log('Deleted all bids');
 
-        // 3. Generate new slug
+        // 3. Generate new slug for fresh start
         const newSlug = generateNewSlug();
         console.log('Generated new slug:', newSlug);
 
-        // 4. Reset auction to draft state
+        // 4. Reset auction to draft state with new slug
+        console.log('Resetting auction to draft state...');
         const { error: updateError } = await supabase
           .from('auctions')
           .update({
@@ -337,36 +337,37 @@ export function ManageAuction() {
           })
           .eq('id', auction.id);
         if (updateError) throw updateError;
-        console.log('Reset auction to draft state');
 
+        console.log('Complete auction reset successful - all bidders and data cleared');
         return newSlug;
       } catch (error) {
-        console.error('Error during reset:', error);
+        console.error('Error during complete reset:', error);
         throw error;
       }
     },
     onSuccess: (newSlug) => {
-      // Invalidate all related queries
+      // Invalidate all related queries to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ['auction'] });
       queryClient.invalidateQueries({ queryKey: ['collections'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['auction-results'] });
       queryClient.invalidateQueries({ queryKey: ['all-bidders'] });
-      queryClient.invalidateQueries({ queryKey: ['bids'] }); // Also invalidate bids cache
+      queryClient.invalidateQueries({ queryKey: ['bids'] });
+      queryClient.invalidateQueries({ queryKey: ['bidder-status'] });
       
       // Navigate to the new URL
       navigate(`/auction/${newSlug}/manage`, { replace: true });
       
       toast({
         title: 'Complete Reset Successful',
-        description: 'All bids have been deleted and a new bidding link has been generated.',
+        description: 'All bids, bidders, and auction data have been deleted. A new bidding link has been generated.',
       });
     },
     onError: (error) => {
       console.error('Reset failed:', error);
       toast({
         title: 'Reset Failed',
-        description: 'Failed to reset the auction. Please try again.',
+        description: 'Failed to reset the auction completely. Please try again.',
         variant: 'destructive',
       });
     }
@@ -873,12 +874,13 @@ export function ManageAuction() {
                           <AlertDialogTitle>Complete Auction Reset</AlertDialogTitle>
                           <AlertDialogDescription>
                             This will completely reset the auction and create a fresh start:
+                            <br />• All bidders will be permanently deleted from the database
                             <br />• All bids will be permanently deleted
                             <br />• All auction results will be cleared
                             <br />• A new bidding link will be generated
                             <br />• Auction status will return to draft
                             <br /><br />
-                            This action cannot be undone and will make it like a brand new auction.
+                            This action cannot be undone and will make it like a brand new auction with no history.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
