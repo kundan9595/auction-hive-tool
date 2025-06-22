@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { supabase } from '@/integrations/supabase/client';
 import { Layout } from '@/components/Layout';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2, MoreHorizontal } from 'lucide-react';
+import { Plus, Play, Pause, Share2, ArrowRight, BarChart3, Square, RefreshCw, Edit, Trash2, MoreHorizontal, Calculator } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BidderStatus } from '@/components/BidderStatus';
 
@@ -697,6 +697,42 @@ export function ManageAuction() {
     }
   };
 
+  // Add recalculate results mutation
+  const recalculateResultsMutation = useMutation({
+    mutationFn: async () => {
+      if (!auction?.id) throw new Error('No auction ID found');
+
+      console.log('Recalculating auction results...');
+      
+      // Call the database function to recalculate results
+      const { error } = await supabase.rpc('calculate_average_auction_results', {
+        auction_id_param: auction.id
+      });
+
+      if (error) throw error;
+
+      return true;
+    },
+    onSuccess: () => {
+      // Invalidate all related queries to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['auction-results', auction?.id] });
+      queryClient.invalidateQueries({ queryKey: ['all-bidders', auction?.id] });
+      
+      toast({
+        title: 'Results Recalculated',
+        description: 'Auction results have been regenerated with the latest allocation logic.',
+      });
+    },
+    onError: (error) => {
+      console.error('Recalculation failed:', error);
+      toast({
+        title: 'Recalculation Failed',
+        description: 'Failed to recalculate auction results. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  });
+
   if (auctionLoading) {
     return (
       <Layout>
@@ -889,6 +925,16 @@ export function ManageAuction() {
                     >
                       <BarChart3 className="w-4 h-4" />
                       <span>View Results</span>
+                    </Button>
+
+                    <Button
+                      onClick={() => recalculateResultsMutation.mutate()}
+                      variant="outline"
+                      className="flex items-center space-x-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                      disabled={recalculateResultsMutation.isPending}
+                    >
+                      <Calculator className={`w-4 h-4 ${recalculateResultsMutation.isPending ? 'animate-spin' : ''}`} />
+                      <span>Recalculate Results</span>
                     </Button>
 
                     <AlertDialog>
