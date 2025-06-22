@@ -11,8 +11,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { Package, Edit, Trash2 } from 'lucide-react';
+import { Package, Edit, Trash2, Image } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ImageUpload } from './ImageUpload';
 
 interface Item {
   id: string;
@@ -22,6 +23,7 @@ interface Item {
   starting_bid: number;
   inventory: number;
   sort_order: number;
+  image_url: string | null;
 }
 
 interface ItemListProps {
@@ -32,6 +34,7 @@ interface ItemListProps {
 export function ItemList({ items, auctionStatus }: ItemListProps) {
   const queryClient = useQueryClient();
   const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const [editingImageUrl, setEditingImageUrl] = useState<string | null>(null);
 
   // Edit item mutation
   const editItemMutation = useMutation({
@@ -40,7 +43,8 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
       name: string; 
       description: string; 
       starting_bid: number; 
-      inventory: number; 
+      inventory: number;
+      image_url: string | null;
     }) => {
       const { error } = await supabase
         .from('items')
@@ -49,6 +53,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
           description: data.description || null,
           starting_bid: data.starting_bid,
           inventory: data.inventory,
+          image_url: data.image_url,
         })
         .eq('id', data.id);
 
@@ -57,6 +62,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       setEditingItem(null);
+      setEditingImageUrl(null);
       toast({
         title: 'Item Updated',
         description: 'Item has been updated successfully.',
@@ -115,6 +121,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Image</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Starting Bid/Unit</TableHead>
@@ -125,6 +132,19 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
             <TableBody>
               {items.map((item) => (
                 <TableRow key={item.id}>
+                  <TableCell>
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="w-12 h-12 object-cover rounded border"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
+                        <Image className="w-5 h-5 text-gray-400" />
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="max-w-xs truncate">
                     {item.description || <span className="text-gray-400">No description</span>}
@@ -137,7 +157,18 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Dialog open={editingItem?.id === item.id} onOpenChange={(open) => setEditingItem(open ? item : null)}>
+                      <Dialog 
+                        open={editingItem?.id === item.id} 
+                        onOpenChange={(open) => {
+                          if (open) {
+                            setEditingItem(item);
+                            setEditingImageUrl(item.image_url);
+                          } else {
+                            setEditingItem(null);
+                            setEditingImageUrl(null);
+                          }
+                        }}
+                      >
                         <DialogTrigger asChild>
                           <Button 
                             size="sm" 
@@ -147,7 +178,7 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                             <Edit className="w-4 h-4" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-2xl">
                           <DialogHeader>
                             <DialogTitle>Edit Item</DialogTitle>
                             <DialogDescription>
@@ -164,57 +195,68 @@ export function ItemList({ items, auctionStatus }: ItemListProps) {
                                 description: formData.get('description') as string,
                                 starting_bid: parseFloat(formData.get('starting_bid') as string),
                                 inventory: parseInt(formData.get('inventory') as string),
+                                image_url: editingImageUrl,
                               });
                             }}
                             className="space-y-4"
                           >
-                            <div>
-                              <Label htmlFor="edit-item-name">Item Name</Label>
-                              <Input 
-                                id="edit-item-name" 
-                                name="name" 
-                                defaultValue={item.name}
-                                required 
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="edit-item-description">Description</Label>
-                              <Textarea 
-                                id="edit-item-description" 
-                                name="description" 
-                                defaultValue={item.description || ''}
-                                rows={2}
-                              />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <Label htmlFor="edit-starting-bid">Starting Bid per Unit (₹)</Label>
-                                <Input 
-                                  id="edit-starting-bid" 
-                                  name="starting_bid" 
-                                  type="number"
-                                  min="0.01"
-                                  step="0.01"
-                                  defaultValue={item.starting_bid}
-                                  required 
-                                />
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Minimum bid amount per unit
-                                </p>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              <div className="space-y-4">
+                                <div>
+                                  <Label htmlFor="edit-item-name">Item Name</Label>
+                                  <Input 
+                                    id="edit-item-name" 
+                                    name="name" 
+                                    defaultValue={item.name}
+                                    required 
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="edit-item-description">Description</Label>
+                                  <Textarea 
+                                    id="edit-item-description" 
+                                    name="description" 
+                                    defaultValue={item.description || ''}
+                                    rows={2}
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <Label htmlFor="edit-starting-bid">Starting Bid per Unit (₹)</Label>
+                                    <Input 
+                                      id="edit-starting-bid" 
+                                      name="starting_bid" 
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      defaultValue={item.starting_bid}
+                                      required 
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Minimum bid amount per unit
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="edit-inventory">Available Quantity</Label>
+                                    <Input 
+                                      id="edit-inventory" 
+                                      name="inventory" 
+                                      type="number"
+                                      min="1"
+                                      defaultValue={item.inventory}
+                                      required 
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      Total units available for bidding
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
                               <div>
-                                <Label htmlFor="edit-inventory">Available Quantity</Label>
-                                <Input 
-                                  id="edit-inventory" 
-                                  name="inventory" 
-                                  type="number"
-                                  min="1"
-                                  defaultValue={item.inventory}
-                                  required 
+                                <ImageUpload
+                                  currentImageUrl={editingImageUrl}
+                                  onImageChange={setEditingImageUrl}
                                 />
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Total units available for bidding
-                                </p>
                               </div>
                             </div>
                             <DialogFooter>

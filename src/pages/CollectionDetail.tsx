@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +14,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { CSVUploader } from '@/components/CSVUploader';
 import { ItemList } from '@/components/ItemList';
+import { ImageUpload } from '@/components/ImageUpload';
 
 interface Collection {
   id: string;
@@ -38,6 +38,7 @@ interface Item {
   starting_bid: number;
   inventory: number;
   sort_order: number;
+  image_url: string | null;
 }
 
 export function CollectionDetail() {
@@ -45,6 +46,7 @@ export function CollectionDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showItemForm, setShowItemForm] = useState(false);
+  const [newItemImageUrl, setNewItemImageUrl] = useState<string | null>(null);
 
   // Fetch auction details
   const { data: auction } = useQuery({
@@ -110,6 +112,7 @@ export function CollectionDetail() {
           starting_bid: startingBid,
           inventory,
           sort_order: (items?.length || 0) + 1,
+          image_url: newItemImageUrl,
         });
 
       if (error) throw error;
@@ -117,6 +120,7 @@ export function CollectionDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items', collectionId] });
       setShowItemForm(false);
+      setNewItemImageUrl(null);
       toast({
         title: 'Item Added',
         description: 'New item has been created successfully.',
@@ -261,45 +265,60 @@ export function CollectionDetail() {
                   }}
                   className="space-y-4"
                 >
-                  <div>
-                    <Label htmlFor="name">Item Name</Label>
-                    <Input id="name" name="name" required />
-                  </div>
-                  <div>
-                    <Label htmlFor="description">Description</Label>
-                    <Textarea id="description" name="description" rows={2} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="startingBid">Starting Bid (₹)</Label>
-                      <Input
-                        id="startingBid"
-                        name="startingBid"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        required
-                      />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="name">Item Name</Label>
+                        <Input id="name" name="name" required />
+                      </div>
+                      <div>
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea id="description" name="description" rows={2} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="startingBid">Starting Bid (₹)</Label>
+                          <Input
+                            id="startingBid"
+                            name="startingBid"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="inventory">Quantity</Label>
+                          <Input
+                            id="inventory"
+                            name="inventory"
+                            type="number"
+                            min="1"
+                            defaultValue="1"
+                            required
+                          />
+                        </div>
+                      </div>
                     </div>
                     <div>
-                      <Label htmlFor="inventory">Quantity</Label>
-                      <Input
-                        id="inventory"
-                        name="inventory"
-                        type="number"
-                        min="1"
-                        defaultValue="1"
-                        required
+                      <ImageUpload
+                        currentImageUrl={newItemImageUrl}
+                        onImageChange={setNewItemImageUrl}
                       />
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <Button type="submit" size="sm">Add Item</Button>
+                    <Button type="submit" size="sm" disabled={addItemMutation.isPending}>
+                      {addItemMutation.isPending ? 'Adding...' : 'Add Item'}
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => setShowItemForm(false)}
+                      onClick={() => {
+                        setShowItemForm(false);
+                        setNewItemImageUrl(null);
+                      }}
                     >
                       Cancel
                     </Button>
