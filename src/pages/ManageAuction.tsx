@@ -167,14 +167,13 @@ export function ManageAuction() {
   });
 
   // Process results to get bidder-wise summary with quantity and refunds
-  const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders ? 
+  const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders && items && collections ? 
     allBidders.map(bidderName => {
       const bidderWins = auctionResults.filter(result => result.winner_name === bidderName);
       
-      const items = bidderWins.map(result => {
-        const collection = collections?.find(c => 
-          c.id === items?.find(item => item.id === result.item_id)?.collection_id
-        );
+      const bidderItems = bidderWins.map(result => {
+        const item = items.find(item => item.id === result.item_id);
+        const collection = collections.find(c => c.id === item?.collection_id);
         
         return {
           collection_name: collection?.name || 'Unknown Collection',
@@ -195,7 +194,7 @@ export function ManageAuction() {
       
       return {
         bidder_name: bidderName,
-        items,
+        items: bidderItems,
         total_spent: totalOriginalBids,
         total_refund: totalRefund,
         budget_remaining: auction!.max_budget_per_bidder - totalOriginalBids + totalRefund,
