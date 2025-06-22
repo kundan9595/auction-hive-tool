@@ -45,6 +45,7 @@ interface Auction {
 interface BidderResult {
   bidder_name: string;
   items: Array<{
+    collection_name: string;
     item_name: string;
     starting_bid: number;
     quantity_won: number;
@@ -170,15 +171,22 @@ export function ManageAuction() {
     allBidders.map(bidderName => {
       const bidderWins = auctionResults.filter(result => result.winner_name === bidderName);
       
-      const items = bidderWins.map(result => ({
-        item_name: result.items.name,
-        starting_bid: result.items.starting_bid,
-        quantity_won: result.quantity_won || 1,
-        original_bid_per_unit: result.original_bid_per_unit || 0,
-        price_per_unit_paid: result.price_per_unit_paid || 0,
-        winning_amount: result.winning_amount || 0,
-        refund_amount: result.refund_amount || 0,
-      }));
+      const items = bidderWins.map(result => {
+        const collection = collections?.find(c => 
+          c.id === items?.find(item => item.id === result.item_id)?.collection_id
+        );
+        
+        return {
+          collection_name: collection?.name || 'Unknown Collection',
+          item_name: result.items.name,
+          starting_bid: result.items.starting_bid,
+          quantity_won: result.quantity_won || 1,
+          original_bid_per_unit: result.original_bid_per_unit || 0,
+          price_per_unit_paid: result.price_per_unit_paid || 0,
+          winning_amount: result.winning_amount || 0,
+          refund_amount: result.refund_amount || 0,
+        };
+      });
       
       // Calculate using original bid amounts
       const totalOriginalBids = bidderWins.reduce((sum, result) => 
@@ -1207,6 +1215,7 @@ export function ManageAuction() {
                           <Table>
                             <TableHeader>
                               <TableRow>
+                                <TableHead>Collection</TableHead>
                                 <TableHead>Item Name</TableHead>
                                 <TableHead>Qty Won</TableHead>
                                 <TableHead>Original Bid/Unit</TableHead>
@@ -1219,6 +1228,7 @@ export function ManageAuction() {
                             <TableBody>
                               {bidder.items.map((item, index) => (
                                 <TableRow key={index}>
+                                  <TableCell className="font-medium">{item.collection_name}</TableCell>
                                   <TableCell>{item.item_name}</TableCell>
                                   <TableCell>{item.quantity_won}</TableCell>
                                   <TableCell>₹{item.original_bid_per_unit.toFixed(2)}</TableCell>
