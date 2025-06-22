@@ -40,6 +40,7 @@ interface Item {
   starting_bid: number;
   inventory: number;
   sort_order: number;
+  image_url: string | null;
 }
 
 interface BidData {
