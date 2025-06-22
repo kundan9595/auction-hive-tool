@@ -1,3 +1,4 @@
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Package } from 'lucide-react';
@@ -18,6 +19,7 @@ interface Item {
   starting_bid: number;
   inventory: number;
   sort_order: number;
+  image_url: string | null;
 }
 
 interface BidData {
@@ -47,10 +49,6 @@ export function CollectionStep({
   onValidationChange
 }: CollectionStepProps) {
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
-
-  const handleBidSubmit = (itemId: string, quantity: number, pricePerUnit: number, totalBid: number) => {
-    onBidUpdate(itemId, { itemId, quantity, pricePerUnit, totalBid });
-  };
 
   const handleValidationChange = (itemId: string, hasError: boolean) => {
     setValidationErrors(prev => {
@@ -112,9 +110,9 @@ export function CollectionStep({
             item={item}
             maxBudget={maxBudget}
             currentBudgetUsed={currentBudgetUsed}
-            onSubmitBid={handleBidSubmit}
-            onValidationChange={handleValidationChange}
-            initialBid={bids[item.id]}
+            currentBid={bids[item.id]}
+            onBidUpdate={onBidUpdate}
+            onValidationChange={(hasErrors) => handleValidationChange(item.id, hasErrors)}
           />
         ))}
       </div>
