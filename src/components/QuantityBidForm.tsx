@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Image, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 interface Item {
   id: string;
@@ -85,20 +85,16 @@ export function QuantityBidForm({
     <Card className="h-full">
       <CardHeader className="pb-3">
         <div className="flex gap-4">
-          {/* Item Image */}
-          <div className="flex-shrink-0">
-            {item.image_url ? (
+          {/* Item Image - only show if image_url exists */}
+          {item.image_url && (
+            <div className="flex-shrink-0">
               <img
                 src={item.image_url}
                 alt={item.name}
                 className="w-20 h-20 object-cover rounded-lg border shadow-sm"
               />
-            ) : (
-              <div className="w-20 h-20 bg-gray-100 rounded-lg border flex items-center justify-center">
-                <Image className="w-8 h-8 text-gray-400" />
-              </div>
-            )}
-          </div>
+            </div>
+          )}
           
           {/* Item Details */}
           <div className="flex-1 min-w-0">
