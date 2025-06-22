@@ -279,7 +279,20 @@ export default function BidderForm() {
       console.log('Submitting bids for auction:', auction!.id, 'bidder:', bidderName);
       console.log('Bid data:', bidArray);
 
-      // Use upsert instead of delete + insert to handle the unique constraint
+      // First, delete any existing bids from this bidder for this auction
+      console.log('Deleting existing bids for bidder:', bidderName);
+      const { error: deleteError } = await supabase
+        .from('bids')
+        .delete()
+        .eq('auction_id', auction!.id)
+        .eq('bidder_name', bidderName);
+
+      if (deleteError) {
+        console.error('Error deleting existing bids:', deleteError);
+        throw deleteError;
+      }
+
+      // Now insert the new bids
       const bidInserts = bidArray.map(bid => ({
         auction_id: auction!.id,
         item_id: bid.itemId,
@@ -289,18 +302,14 @@ export default function BidderForm() {
         quantity_requested: bid.quantity,
       }));
 
-      console.log('Upserting bids:', bidInserts);
+      console.log('Inserting new bids:', bidInserts);
 
-      // Upsert bids - this will insert new ones or update existing ones
       const { error } = await supabase
         .from('bids')
-        .upsert(bidInserts, {
-          onConflict: 'auction_id,item_id,bidder_name', // Handle conflicts on the unique constraint
-          ignoreDuplicates: false // We want to update existing bids, not ignore them
-        });
+        .insert(bidInserts);
         
       if (error) {
-        console.error('Error upserting bids:', error);
+        console.error('Error inserting bids:', error);
         throw error;
       }
 
