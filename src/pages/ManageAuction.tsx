@@ -57,6 +57,20 @@ interface BidderResult {
   total_spent: number;
   total_refund: number;
   budget_remaining: number;
+  // New fields for complete bid tracking
+  total_bids_placed: number;
+  total_winning_bids: number;
+  total_lost_bids: number;
+  lost_bids: Array<{
+    item_name: string;
+    collection_name: string;
+    bid_amount: number;
+    quantity_requested: number;
+    price_per_unit: number;
+    reason: string;
+    additionalInfo: string;
+    starting_bid: number;
+  }>;
 }
 
 interface RemainingItem {
@@ -166,10 +180,39 @@ export function ManageAuction() {
     enabled: !!auction?.id && auction?.status === 'closed',
   });
 
-  // Process results to get bidder-wise summary with quantity and refunds
-  const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders && items && collections ? 
+  // Fetch ALL bids for this auction (not just winning ones)
+  const { data: allBids } = useQuery({
+    queryKey: ['all-bids', auction?.id],
+    queryFn: async () => {
+      if (!auction?.id || auction.status !== 'closed') return [];
+      
+      const { data, error } = await supabase
+        .from('bids')
+        .select(`
+          *,
+          items (
+            id,
+            name,
+            starting_bid,
+            inventory,
+            collection_id,
+            collections (name)
+          )
+        `)
+        .eq('auction_id', auction.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!auction?.id && auction?.status === 'closed',
+  });
+
+  // Enhanced bidder results processing with complete bid information
+  const bidderResults: BidderResult[] = auction?.status === 'closed' && auctionResults && allBidders && items && collections && allBids ? 
     allBidders.map(bidderName => {
       const bidderWins = auctionResults.filter(result => result.winner_name === bidderName);
+      const bidderAllBids = allBids.filter(bid => bid.bidder_name === bidderName);
       
       const bidderItems = bidderWins.map(result => {
         const item = items.find(item => item.id === result.item_id);
@@ -187,17 +230,65 @@ export function ManageAuction() {
         };
       });
       
-      // Calculate using original bid amounts
-      const totalOriginalBids = bidderWins.reduce((sum, result) => 
+      // Calculate total bids placed (all bids by this bidder)
+      const totalBidsPlaced = bidderAllBids.reduce((sum, bid) => sum + bid.bid_amount, 0);
+      
+      // Calculate winning bids total (using original bid amounts from results)
+      const totalWinningBids = bidderWins.reduce((sum, result) => 
         sum + ((result.original_bid_per_unit || 0) * (result.quantity_won || 1)), 0);
+      
+      // Calculate lost bids
+      const totalLostBids = totalBidsPlaced - totalWinningBids;
+      
+      // Calculate refunds
       const totalRefund = bidderWins.reduce((sum, result) => sum + (result.refund_amount || 0), 0);
+      
+      // Get lost bids with reasons
+      const lostBids = bidderAllBids
+        .filter(bid => !bidderWins.some(win => win.item_id === bid.item_id))
+        .map(bid => {
+          const item = items.find(i => i.id === bid.item_id);
+          const collection = collections.find(c => c.id === item?.collection_id);
+          const itemResults = auctionResults.filter(result => result.item_id === bid.item_id);
+          
+          let reason = 'No items allocated';
+          let additionalInfo = '';
+          
+          if (bid.bid_amount / bid.quantity_requested < (item?.starting_bid || 0)) {
+            reason = 'Bid below minimum price';
+            additionalInfo = `Minimum required: ₹${item?.starting_bid || 0}/unit`;
+          } else if (itemResults.length > 0) {
+            const lowestWinningPrice = Math.min(...itemResults.map(r => r.original_bid_per_unit || 0));
+            reason = 'Outbid by higher bidders';
+            additionalInfo = `Lowest winning bid: ₹${lowestWinningPrice}/unit`;
+          } else if (item) {
+            reason = 'Insufficient inventory for all bidders';
+            additionalInfo = `Only ${item.inventory} units available`;
+          }
+          
+          return {
+            item_name: item?.name || 'Unknown Item',
+            collection_name: collection?.name || 'Unknown Collection',
+            bid_amount: bid.bid_amount,
+            quantity_requested: bid.quantity_requested,
+            price_per_unit: bid.bid_amount / bid.quantity_requested,
+            reason,
+            additionalInfo,
+            starting_bid: item?.starting_bid || 0,
+          };
+        });
       
       return {
         bidder_name: bidderName,
         items: bidderItems,
-        total_spent: totalOriginalBids,
+        total_spent: totalWinningBids,
         total_refund: totalRefund,
-        budget_remaining: auction!.max_budget_per_bidder - totalOriginalBids + totalRefund,
+        budget_remaining: auction!.max_budget_per_bidder - totalWinningBids + totalRefund,
+        // New fields for complete bid tracking
+        total_bids_placed: totalBidsPlaced,
+        total_winning_bids: totalWinningBids,
+        total_lost_bids: totalLostBids,
+        lost_bids: lostBids,
       };
     })
   : [];
@@ -1169,15 +1260,15 @@ export function ManageAuction() {
           </CardContent>
         </Card>
 
-        {/* Auction Results - Show only when auction is closed with new quantity and refund display */}
+        {/* Enhanced Auction Results - Show only when auction is closed */}
         {auction.status === 'closed' && (
           <>
-            {/* All Bidders Results Card - Updated for quantity-based results */}
+            {/* Enhanced Bidders Results Card with complete bid information */}
             <Card>
               <CardHeader>
-                <CardTitle>Auction Results - Quantity-Based with Average Pricing</CardTitle>
+                <CardTitle>Complete Auction Results - Bidding Activity & Outcomes</CardTitle>
                 <CardDescription>
-                  Complete summary showing quantities won, average pricing, and refunds for all participants
+                  Comprehensive view showing all bids placed, items won, items lost, and detailed reasons
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -1198,11 +1289,26 @@ export function ManageAuction() {
                                 {bidder.items.reduce((sum, item) => sum + item.quantity_won, 0)} Units Won
                               </Badge>
                             )}
+                            {bidder.lost_bids.length > 0 && (
+                              <Badge variant="outline" className="text-orange-600 border-orange-200">
+                                {bidder.lost_bids.length} Items Lost
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-right">
                             <div className="space-y-1">
-                              <p className="text-sm text-gray-600">Original Bid Total: ₹{bidder.total_spent.toFixed(2)}</p>
-                              <p className="text-sm text-green-600">Refund Amount: ₹{bidder.total_refund.toFixed(2)}</p>
+                              <p className="text-sm font-medium text-blue-600">
+                                Total Bids Placed: ₹{bidder.total_bids_placed.toFixed(2)}
+                              </p>
+                              <p className="text-sm text-gray-600">
+                                Winning Bids: ₹{bidder.total_winning_bids.toFixed(2)}
+                              </p>
+                              {bidder.total_lost_bids > 0 && (
+                                <p className="text-sm text-orange-600">
+                                  Lost Bids: ₹{bidder.total_lost_bids.toFixed(2)}
+                                </p>
+                              )}
+                              <p className="text-sm text-green-600">Refund: ₹{bidder.total_refund.toFixed(2)}</p>
                               <div className="border-t border-gray-200 pt-1 mt-1">
                                 <p className="text-sm font-medium">Budget Remaining: ₹{bidder.budget_remaining.toFixed(2)}</p>
                               </div>
@@ -1210,39 +1316,89 @@ export function ManageAuction() {
                           </div>
                         </div>
                         
-                        {bidder.items.length > 0 ? (
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Collection</TableHead>
-                                <TableHead>Item Name</TableHead>
-                                <TableHead>Qty Won</TableHead>
-                                <TableHead>Original Bid/Unit</TableHead>
-                                <TableHead>Average Price/Unit</TableHead>
-                                <TableHead>Total Original Bid</TableHead>
-                                <TableHead>Total After Average</TableHead>
-                                <TableHead>Refund</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {bidder.items.map((item, index) => (
-                                <TableRow key={index}>
-                                  <TableCell className="font-medium">{item.collection_name}</TableCell>
-                                  <TableCell>{item.item_name}</TableCell>
-                                  <TableCell>{item.quantity_won}</TableCell>
-                                  <TableCell>₹{item.original_bid_per_unit.toFixed(2)}</TableCell>
-                                  <TableCell>₹{item.price_per_unit_paid.toFixed(2)}</TableCell>
-                                  <TableCell>₹{(item.original_bid_per_unit * item.quantity_won).toFixed(2)}</TableCell>
-                                  <TableCell>₹{item.winning_amount.toFixed(2)}</TableCell>
-                                  <TableCell className="text-green-600">₹{item.refund_amount.toFixed(2)}</TableCell>
+                        {/* Winning Items */}
+                        {bidder.items.length > 0 && (
+                          <div className="mb-4">
+                            <h5 className="font-medium text-green-800 mb-2 flex items-center">
+                              <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                              Items Won
+                            </h5>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Collection</TableHead>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead>Qty Won</TableHead>
+                                  <TableHead>Original Bid/Unit</TableHead>
+                                  <TableHead>Average Price/Unit</TableHead>
+                                  <TableHead>Total Original Bid</TableHead>
+                                  <TableHead>Total After Average</TableHead>
+                                  <TableHead>Refund</TableHead>
                                 </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        ) : (
+                              </TableHeader>
+                              <TableBody>
+                                {bidder.items.map((item, index) => (
+                                  <TableRow key={index}>
+                                    <TableCell className="font-medium">{item.collection_name}</TableCell>
+                                    <TableCell>{item.item_name}</TableCell>
+                                    <TableCell>{item.quantity_won}</TableCell>
+                                    <TableCell>₹{item.original_bid_per_unit.toFixed(2)}</TableCell>
+                                    <TableCell>₹{item.price_per_unit_paid.toFixed(2)}</TableCell>
+                                    <TableCell>₹{(item.original_bid_per_unit * item.quantity_won).toFixed(2)}</TableCell>
+                                    <TableCell>₹{item.winning_amount.toFixed(2)}</TableCell>
+                                    <TableCell className="text-green-600">₹{item.refund_amount.toFixed(2)}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+
+                        {/* Lost Items */}
+                        {bidder.lost_bids.length > 0 && (
+                          <div>
+                            <h5 className="font-medium text-orange-800 mb-2 flex items-center">
+                              <span className="w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+                              Items Bid On But Not Won
+                            </h5>
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Collection</TableHead>
+                                  <TableHead>Item Name</TableHead>
+                                  <TableHead>Your Bid</TableHead>
+                                  <TableHead>Qty Requested</TableHead>
+                                  <TableHead>Your Price/Unit</TableHead>
+                                  <TableHead>Reason Not Won</TableHead>
+                                  <TableHead>Additional Info</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {bidder.lost_bids.map((lostBid, index) => (
+                                  <TableRow key={index} className="bg-orange-50">
+                                    <TableCell className="font-medium">{lostBid.collection_name}</TableCell>
+                                    <TableCell>{lostBid.item_name}</TableCell>
+                                    <TableCell>₹{lostBid.bid_amount.toFixed(2)}</TableCell>
+                                    <TableCell>{lostBid.quantity_requested}</TableCell>
+                                    <TableCell>₹{lostBid.price_per_unit.toFixed(2)}</TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline" className="text-orange-700 border-orange-300">
+                                        {lostBid.reason}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-sm text-gray-600">
+                                      {lostBid.additionalInfo}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+
+                        {bidder.items.length === 0 && bidder.lost_bids.length === 0 && (
                           <div className="text-center py-4 text-gray-500 bg-gray-50 rounded-lg">
-                            <p className="text-sm">This bidder did not win any items in this auction.</p>
-                            <p className="text-xs mt-1">Full budget of ₹{auction.max_budget_per_bidder} remains unused.</p>
+                            <p className="text-sm">This bidder did not place any bids in this auction.</p>
                           </div>
                         )}
                       </div>
