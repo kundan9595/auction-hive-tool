@@ -102,7 +102,7 @@ export default function BidderForm() {
     }
   }, [slug, bidderName, bidderEmail, isRegistered, bids, currentStep]);
 
-  // Fetch auction details
+  // Fetch auction details - Allow access to closed auctions for result viewing
   const { data: auction, isLoading: auctionLoading } = useQuery({
     queryKey: ['auction-public', slug],
     queryFn: async () => {
@@ -160,7 +160,7 @@ export default function BidderForm() {
   const currentBudgetUsed = Object.values(bids).reduce((sum, bid) => sum + bid.totalBid, 0);
   const isBudgetExceeded = !!auction && currentBudgetUsed > auction.max_budget_per_bidder;
 
-  // Subscribe to auction status changes
+  // Subscribe to auction status changes and real-time updates
   useEffect(() => {
     if (!auction?.id) return;
 
@@ -191,11 +191,36 @@ export default function BidderForm() {
               case 'closed':
                 toast({
                   title: "Auction Closed",
-                  description: "This auction has ended and is no longer accepting bids.",
-                  variant: "destructive",
+                  description: "The auction has ended. Results will be available shortly.",
                 });
+                // Invalidate results queries to trigger refetch
+                queryClient.invalidateQueries({ queryKey: ['bidder-results'] });
+                queryClient.invalidateQueries({ queryKey: ['overall-results'] });
                 break;
             }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auction_results',
+          filter: `auction_id=eq.${auction.id}`,
+        },
+        (payload) => {
+          console.log('Auction results updated:', payload);
+          // Invalidate results queries when results are inserted/updated
+          queryClient.invalidateQueries({ queryKey: ['bidder-results', auction.id] });
+          queryClient.invalidateQueries({ queryKey: ['overall-results', auction.id] });
+          
+          // Show toast when results become available
+          if (payload.eventType === 'INSERT') {
+            toast({
+              title: "Results Available",
+              description: "Auction results have been calculated and are now available.",
+            });
           }
         }
       )
@@ -463,109 +488,88 @@ export default function BidderForm() {
     return true;
   };
 
-  // Thank you page with real-time results
-  if (isSubmitted) {
+  // Thank you page with real-time results - Allow access for any auction status when submitted
+  if (isSubmitted || (auction?.status === 'closed' && isRegistered)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 p-4">
         <div className="max-w-6xl mx-auto">
-          {auction.status === 'closed' ? (
-            <Card className="w-full">
-              <CardHeader className="text-center">
-                <div className="mb-6 celebration-bounce">
-                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
-                    <svg
-                      className="w-10 h-10 text-white"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                  </div>
+          <Card className="w-full">
+            <CardHeader className="text-center">
+              <div className="mb-6 celebration-bounce">
+                <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
+                  <svg
+                    className="w-10 h-10 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
                 </div>
-                <CardTitle className="text-2xl auction-text-gradient">Auction Complete!</CardTitle>
-                <CardDescription>
-                  View your results and overall auction statistics below
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Tabs defaultValue="my-results" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="my-results" className="flex items-center gap-2">
-                      <Trophy className="w-4 h-4" />
-                      My Results
-                    </TabsTrigger>
-                    <TabsTrigger value="overall-results" className="flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4" />
-                      Overall Results
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="my-results" className="mt-6">
+              </div>
+              <CardTitle className="text-2xl auction-text-gradient">
+                {auction?.status === 'closed' ? 'Auction Complete!' : 'Bids Submitted Successfully!'}
+              </CardTitle>
+              <CardDescription>
+                {auction?.status === 'closed' 
+                  ? 'View your results and overall auction statistics below'
+                  : 'Results will appear here once the auction is closed'
+                }
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="my-results" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="my-results" className="flex items-center gap-2">
+                    <Trophy className="w-4 h-4" />
+                    My Results
+                  </TabsTrigger>
+                  <TabsTrigger value="overall-results" className="flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    Overall Results
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="my-results" className="mt-6">
+                  {auction?.status === 'closed' ? (
                     <BidderResultsDisplay
                       auctionId={auction.id}
                       bidderName={bidderName}
                       bidderEmail={bidderEmail}
                     />
-                  </TabsContent>
-                  
-                  <TabsContent value="overall-results" className="mt-6">
-                    <OverallResultsDisplay auctionId={auction.id} />
-                  </TabsContent>
-                </Tabs>
+                  ) : (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <strong>Waiting for results...</strong><br />
+                        Results will appear automatically when the auction is closed. 
+                        You'll be able to see both your personal results and overall auction statistics.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </TabsContent>
                 
-                <div className="flex justify-center mt-8">
-                  <Button
-                    variant="outline"
-                    onClick={() => window.location.reload()}
-                    className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
-                  >
-                    Submit Another Bid
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            // Waiting for results state
-            <Card className="max-w-md w-full mx-auto">
-              <CardContent className="text-center py-12">
-                <div className="mb-6 celebration-bounce">
-                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
-                    <svg
-                      className="w-10 h-10 text-white"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <h2 className="text-2xl font-semibold mb-2 auction-text-gradient">Bids Submitted!</h2>
-                <div className="mb-6">
-                  <Badge className="bg-green-100 text-green-800 text-sm">Complete</Badge>
-                </div>
-                <p className="text-gray-600 mb-2">
-                  Your bids have been successfully submitted.
-                </p>
-                <Alert className="mb-6">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <strong>Waiting for results...</strong><br />
-                    Results will appear automatically when the auction is closed. 
-                    You'll be able to see both your personal results and overall auction statistics.
-                  </AlertDescription>
-                </Alert>
+                <TabsContent value="overall-results" className="mt-6">
+                  {auction?.status === 'closed' ? (
+                    <OverallResultsDisplay auctionId={auction.id} />
+                  ) : (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <strong>Waiting for results...</strong><br />
+                        Overall auction results and statistics will be available once the auction is closed.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </TabsContent>
+              </Tabs>
+              
+              <div className="flex justify-center mt-8">
                 <Button
                   variant="outline"
                   onClick={() => window.location.reload()}
@@ -573,9 +577,9 @@ export default function BidderForm() {
                 >
                   Submit Another Bid
                 </Button>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -629,8 +633,8 @@ export default function BidderForm() {
     );
   }
 
-  // Show message if auction is not active
-  if (auction.status !== 'active') {
+  // Show message if auction is not active and user hasn't submitted bids yet
+  if (auction.status !== 'active' && !isSubmitted && !isRegistered) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -657,6 +661,7 @@ export default function BidderForm() {
     );
   }
 
+  // ... keep existing code (renderStepContent function and main form logic)
   const renderStepContent = () => {
     // Registration Step
     if (currentStep === 0) {

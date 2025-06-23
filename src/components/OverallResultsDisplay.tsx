@@ -1,10 +1,11 @@
 
+import { useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart3, Users, Package, TrendingUp, AlertCircle } from 'lucide-react';
 
 interface OverallResultsDisplayProps {
@@ -39,6 +40,8 @@ interface AuctionStats {
 }
 
 export function OverallResultsDisplay({ auctionId }: OverallResultsDisplayProps) {
+  const queryClient = useQueryClient();
+
   // Fetch all auction results
   const { data: allResults, isLoading } = useQuery({
     queryKey: ['overall-results', auctionId],
@@ -61,6 +64,31 @@ export function OverallResultsDisplay({ auctionId }: OverallResultsDisplayProps)
       return data as OverallResult[];
     },
   });
+
+  // Real-time subscription for overall auction results
+  useEffect(() => {
+    const channel = supabase
+      .channel(`overall-results-${auctionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auction_results',
+          filter: `auction_id=eq.${auctionId}`,
+        },
+        (payload) => {
+          console.log('Overall results updated:', payload);
+          // Invalidate queries to trigger refetch
+          queryClient.invalidateQueries({ queryKey: ['overall-results', auctionId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [auctionId, queryClient]);
 
   if (isLoading) {
     return (

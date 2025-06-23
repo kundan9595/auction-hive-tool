@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Wallet, TrendingUp, TrendingDown, Trophy, AlertCircle } from 'lucide-react';
 
 interface BidderResultsDisplayProps {
@@ -48,6 +48,8 @@ interface BidderBid {
 }
 
 export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: BidderResultsDisplayProps) {
+  const queryClient = useQueryClient();
+
   // Fetch bidder's winning results
   const { data: winningResults, isLoading: resultsLoading } = useQuery({
     queryKey: ['bidder-results', auctionId, bidderName],
@@ -92,6 +94,31 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
       return data as BidderBid[];
     },
   });
+
+  // Real-time subscription for auction results
+  useEffect(() => {
+    const channel = supabase
+      .channel(`bidder-results-${auctionId}-${bidderName}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auction_results',
+          filter: `auction_id=eq.${auctionId}`,
+        },
+        (payload) => {
+          console.log('Bidder results updated:', payload);
+          // Invalidate queries to trigger refetch
+          queryClient.invalidateQueries({ queryKey: ['bidder-results', auctionId, bidderName] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [auctionId, bidderName, queryClient]);
 
   if (resultsLoading || bidsLoading) {
     return (
