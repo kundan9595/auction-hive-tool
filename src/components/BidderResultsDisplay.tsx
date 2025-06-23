@@ -50,10 +50,14 @@ interface BidderBid {
 export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: BidderResultsDisplayProps) {
   const queryClient = useQueryClient();
 
+  console.log('BidderResultsDisplay props:', { auctionId, bidderName, bidderEmail });
+
   // Fetch bidder's winning results
-  const { data: winningResults, isLoading: resultsLoading } = useQuery({
+  const { data: winningResults, isLoading: resultsLoading, error: resultsError } = useQuery({
     queryKey: ['bidder-results', auctionId, bidderName],
     queryFn: async () => {
+      console.log('Fetching bidder results for:', { auctionId, bidderName });
+      
       const { data, error } = await supabase
         .from('auction_results')
         .select(`
@@ -67,15 +71,22 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
         .eq('auction_id', auctionId)
         .eq('winner_name', bidderName);
 
-      if (error) throw error;
+      console.log('Bidder results query response:', { data, error });
+
+      if (error) {
+        console.error('Error fetching bidder results:', error);
+        throw error;
+      }
       return data as BidderResult[];
     },
   });
 
   // Fetch all bidder's bids
-  const { data: allBids, isLoading: bidsLoading } = useQuery({
+  const { data: allBids, isLoading: bidsLoading, error: bidsError } = useQuery({
     queryKey: ['bidder-bids', auctionId, bidderName],
     queryFn: async () => {
+      console.log('Fetching bidder bids for:', { auctionId, bidderName });
+      
       const { data, error } = await supabase
         .from('bids')
         .select(`
@@ -90,13 +101,20 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
         .eq('auction_id', auctionId)
         .eq('bidder_name', bidderName);
 
-      if (error) throw error;
+      console.log('Bidder bids query response:', { data, error });
+
+      if (error) {
+        console.error('Error fetching bidder bids:', error);
+        throw error;
+      }
       return data as BidderBid[];
     },
   });
 
   // Real-time subscription for auction results
   useEffect(() => {
+    console.log('Setting up real-time subscription for bidder results');
+    
     const channel = supabase
       .channel(`bidder-results-${auctionId}-${bidderName}`)
       .on(
@@ -108,7 +126,7 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
           filter: `auction_id=eq.${auctionId}`,
         },
         (payload) => {
-          console.log('Bidder results updated:', payload);
+          console.log('Bidder results real-time update:', payload);
           // Invalidate queries to trigger refetch
           queryClient.invalidateQueries({ queryKey: ['bidder-results', auctionId, bidderName] });
         }
@@ -116,11 +134,23 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
       .subscribe();
 
     return () => {
+      console.log('Cleaning up real-time subscription');
       supabase.removeChannel(channel);
     };
   }, [auctionId, bidderName, queryClient]);
 
+  // Log errors
+  useEffect(() => {
+    if (resultsError) {
+      console.error('Results error:', resultsError);
+    }
+    if (bidsError) {
+      console.error('Bids error:', bidsError);
+    }
+  }, [resultsError, bidsError]);
+
   if (resultsLoading || bidsLoading) {
+    console.log('Loading bidder results...', { resultsLoading, bidsLoading });
     return (
       <div className="space-y-4">
         <div className="animate-pulse space-y-4">
@@ -136,6 +166,8 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
     !wonItems.some(result => result.item_id === bid.item_id)
   );
 
+  console.log('Processed results:', { wonItems, lostBids, totalResults: wonItems.length });
+
   const totalSpent = wonItems.reduce((sum, result) => sum + result.winning_amount, 0);
   const totalRefund = wonItems.reduce((sum, result) => sum + result.refund_amount, 0);
   const totalBidAmount = (allBids || []).reduce((sum, bid) => sum + bid.bid_amount, 0);
@@ -143,6 +175,14 @@ export function BidderResultsDisplay({ auctionId, bidderName, bidderEmail }: Bid
 
   return (
     <div className="space-y-6">
+      {/* Debug Info */}
+      <Alert>
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>
+          Debug: Found {wonItems.length} winning results and {lostBids.length} lost bids for bidder "{bidderName}" in auction "{auctionId}"
+        </AlertDescription>
+      </Alert>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
