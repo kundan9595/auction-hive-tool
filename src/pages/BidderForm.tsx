@@ -6,13 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { User, Wallet, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, Send, AlertCircle, AlertTriangle } from 'lucide-react';
+import { User, Wallet, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, Send, AlertCircle, AlertTriangle, Trophy, BarChart3 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Stepper } from '@/components/Stepper';
 import { CollectionStep } from '@/components/CollectionStep';
 import { ReviewStep } from '@/components/ReviewStep';
+import { BidderResultsDisplay } from '@/components/BidderResultsDisplay';
+import { OverallResultsDisplay } from '@/components/OverallResultsDisplay';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -460,29 +463,77 @@ export default function BidderForm() {
     return true;
   };
 
-  // Thank you page
+  // Thank you page with real-time results
   if (isSubmitted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full">
-          <CardContent className="text-center py-12">
-            {auction.status === 'closed' ? (
-              <div>
-                <AlertCircle className="w-16 h-16 mx-auto mb-4 text-yellow-500" />
-                <h2 className="text-2xl font-semibold mb-2">Auction Closed</h2>
-                <p className="text-gray-600 mb-6">
-                  Sorry, this auction has already been closed. Your bids have not been submitted.
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => window.location.href = '/'}
-                  className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
-                >
-                  Return Home
-                </Button>
-              </div>
-            ) : (
-              <div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 p-4">
+        <div className="max-w-6xl mx-auto">
+          {auction.status === 'closed' ? (
+            <Card className="w-full">
+              <CardHeader className="text-center">
+                <div className="mb-6 celebration-bounce">
+                  <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
+                    <svg
+                      className="w-10 h-10 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                  </div>
+                </div>
+                <CardTitle className="text-2xl auction-text-gradient">Auction Complete!</CardTitle>
+                <CardDescription>
+                  View your results and overall auction statistics below
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue="my-results" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="my-results" className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4" />
+                      My Results
+                    </TabsTrigger>
+                    <TabsTrigger value="overall-results" className="flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4" />
+                      Overall Results
+                    </TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="my-results" className="mt-6">
+                    <BidderResultsDisplay
+                      auctionId={auction.id}
+                      bidderName={bidderName}
+                      bidderEmail={bidderEmail}
+                    />
+                  </TabsContent>
+                  
+                  <TabsContent value="overall-results" className="mt-6">
+                    <OverallResultsDisplay auctionId={auction.id} />
+                  </TabsContent>
+                </Tabs>
+                
+                <div className="flex justify-center mt-8">
+                  <Button
+                    variant="outline"
+                    onClick={() => window.location.reload()}
+                    className="border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+                  >
+                    Submit Another Bid
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            // Waiting for results state
+            <Card className="max-w-md w-full mx-auto">
+              <CardContent className="text-center py-12">
                 <div className="mb-6 celebration-bounce">
                   <div className="w-20 h-20 auction-gradient rounded-full flex items-center justify-center mx-auto shadow-lg">
                     <svg
@@ -507,9 +558,14 @@ export default function BidderForm() {
                 <p className="text-gray-600 mb-2">
                   Your bids have been successfully submitted.
                 </p>
-                <p className="text-sm text-gray-500 mb-6">
-                  We'll notify you about the auction results.
-                </p>
+                <Alert className="mb-6">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Waiting for results...</strong><br />
+                    Results will appear automatically when the auction is closed. 
+                    You'll be able to see both your personal results and overall auction statistics.
+                  </AlertDescription>
+                </Alert>
                 <Button
                   variant="outline"
                   onClick={() => window.location.reload()}
@@ -517,10 +573,10 @@ export default function BidderForm() {
                 >
                   Submit Another Bid
                 </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     );
   }
